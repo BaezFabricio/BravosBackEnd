@@ -1,0 +1,211 @@
+{
+  "info": {
+    "_postman_id": "bravos-api-collection",
+    "name": "Bravos API",
+    "description": "Colección de endpoints para el API de Bravos Backend",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Registro",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Juan\",\n  \"apellido\": \"Pérez\",\n  \"dni\": \"12345678\",\n  \"email\": \"juan@example.com\",\n  \"telefono\": \"1234567890\",\n  \"username\": \"juanperez\",\n  \"password\": \"password123\",\n  \"perfil_id\": 2\n}"
+            },
+            "url": {
+              "raw": "{{baseURL}}/auth/registro",
+              "host": ["{{baseURL}}"],
+              "path": ["auth", "registro"]
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"juan@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseURL}}/auth/login",
+              "host": ["{{baseURL}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Usuarios",
+      "item": [
+        {
+          "name": "Obtener todos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/usuarios",
+              "host": ["{{baseURL}}"],
+              "path": ["usuarios"]
+            }
+          }
+        },
+        {
+          "name": "Obtener por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/usuarios/1",
+              "host": ["{{baseURL}}"],
+              "path": ["usuarios", "1"]
+            }
+          }
+        },
+        {
+          "name": "Crear usuario",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"María\",\n  \"apellido\": \"García\",\n  \"dni\": \"87654321\",\n  \"email\": \"maria@example.com\",\n  \"telefono\": \"0987654321\",\n  \"username\": \"mariagarcia\",\n  \"password\": \"password456\",\n  \"perfil_id\": 3\n}"
+            },
+            "url": {
+              "raw": "{{baseURL}}/usuarios",
+              "host": ["{{baseURL}}"],
+              "path": ["usuarios"]
+            }
+          }
+        },
+        {
+          "name": "Actualizar usuario",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Juan Carlos\",\n  \"apellido\": \"Pérez García\",\n  \"email\": \"juan.carlos@example.com\",\n  \"telefono\": \"1234567899\"\n}"
+            },
+            "url": {
+              "raw": "{{baseURL}}/usuarios/1",
+              "host": ["{{baseURL}}"],
+              "path": ["usuarios", "1"]
+            }
+          }
+        },
+        {
+          "name": "Cambiar estado",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"inactivo\"\n}"
+            },
+            "url": {
+              "raw": "{{baseURL}}/usuarios/1/estado",
+              "host": ["{{baseURL}}"],
+              "path": ["usuarios", "1", "estado"]
+            }
+          }
+        },
+        {
+          "name": "Eliminar usuario",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseURL}}/usuarios/1",
+              "host": ["{{baseURL}}"],
+              "path": ["usuarios", "1"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseURL}}/health",
+          "host": ["{{baseURL}}"],
+          "path": ["health"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseURL",
+      "value": "http://localhost:5000/api",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}
