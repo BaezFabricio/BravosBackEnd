@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/auth.controller');
+const { authenticateToken } = require('../middlewares/auth.middleware');
 const { validateRegister, validateLogin, handleValidationErrors } = require('../functions/validation');
 
 /**
@@ -14,5 +15,11 @@ router.post('/registro', validateRegister, handleValidationErrors, authControlle
  * Inicia sesión
  */
 router.post('/login', validateLogin, handleValidationErrors, authController.login);
+
+/**
+ * GET /api/auth/me
+ * Devuelve la sesión actual
+ */
+router.get('/me', authenticateToken, authController.me);
 
 module.exports = router;

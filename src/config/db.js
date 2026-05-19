@@ -45,7 +45,7 @@ async function query(sql, values = []) {
   try {
     connection = await getConnection();
     const [results] = await connection.execute(sql, values);
-    return results;
+    return [results];
   } catch (error) {
     console.error('Error en query:', error.message);
     throw error;

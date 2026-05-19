@@ -9,6 +9,7 @@ const insertarUsuario = require('../data/Usuarios/InsertarUsuario');
 const insertarAlumno = require('../data/Alumno/InsertarAlumno');
 const insertarProfesor = require('../data/Profesor/InsertarProfesor');
 const insertarAdministrador = require('../data/Administrador/InsertarAdministrador');
+const obtenerPermisosPorPerfil = require('../data/Perfil/ObtenerPermisosPorPerfil');
 const { hashPassword, comparePassword } = require('../functions/encryption');
 const { generateToken } = require('../functions/jwt');
 const { asyncHandler } = require('../utils/helpers');
@@ -80,9 +81,12 @@ exports.registro = asyncHandler(async (req, res) => {
     idPerfil: idPerfil,
   });
 
+  const [permisos] = await db.query(obtenerPermisosPorPerfil, [idPerfil]);
+
   return successResponse(res, 'Usuario registrado exitosamente', {
     token,
     usuario: nuevoUsuario[0],
+    permisos,
   }, 201);
 });
 
@@ -116,6 +120,8 @@ exports.login = asyncHandler(async (req, res) => {
     idPerfil: usuario.idPerfil,
   });
 
+  const [permisos] = await db.query(obtenerPermisosPorPerfil, [usuario.idPerfil]);
+
   return successResponse(res, 'Sesión iniciada exitosamente', {
     token,
     usuario: {
@@ -125,6 +131,25 @@ exports.login = asyncHandler(async (req, res) => {
       perfil: usuario.nombrePerfil,
       estado: usuario.estado,
     },
+    permisos,
+  });
+});
+
+/**
+ * GET /api/auth/me
+ * Devuelve la sesión actual junto con permisos
+ */
+exports.me = asyncHandler(async (req, res) => {
+  const [permisos] = await db.query(obtenerPermisosPorPerfil, [req.user.idPerfil]);
+
+  return successResponse(res, 'Sesión obtenida correctamente', {
+    usuario: {
+      idUsuario: req.user.idUsuario,
+      correo: req.user.correo,
+      username: req.user.username,
+      idPerfil: req.user.idPerfil,
+    },
+    permisos,
   });
 });
 
