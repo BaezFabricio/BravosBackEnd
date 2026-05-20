@@ -3,6 +3,8 @@ const { body, validationResult } = require('express-validator');
 /**
  * Validaciones para registro de usuario
  */
+/**
+ */
 const validateRegister = [
   body('nombrecompleto')
     .trim()
@@ -37,9 +39,7 @@ const validateRegister = [
     .notEmpty()
     .withMessage('El nombre de usuario es requerido')
     .isLength({ min: 3 })
-    .withMessage('El nombre de usuario debe tener al menos 3 caracteres')
-    .matches(/^[a-zA-Z0-9_-]+$/)
-    .withMessage('El nombre de usuario solo puede contener letras, números, guiones y guiones bajos'),
+    .withMessage('El nombre de usuario debe tener al menos 3 caracteres'),
 
   body('password')
     .notEmpty()
@@ -47,11 +47,7 @@ const validateRegister = [
     .isLength({ min: 6 })
     .withMessage('La contraseña debe tener al menos 6 caracteres'),
 
-  body('idPerfil')
-    .notEmpty()
-    .withMessage('El perfil es requerido')
-    .isInt()
-    .withMessage('El perfil debe ser un número válido'),
+
 ];
 
 /**

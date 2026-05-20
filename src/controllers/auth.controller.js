@@ -20,10 +20,15 @@ const { ROLES } = require('../utils/constants');
  * POST /api/auth/registro
  * Registra un nuevo usuario
  */
+/**
+ * POST /api/auth/registro
+ * Registra un nuevo usuario en espera de aprobación del Admin
+ */
 exports.registro = asyncHandler(async (req, res) => {
-  const { nombrecompleto, dni, correo, telefono, username, password, idPerfil, tipoAlumno } = req.body;
+  // Sacamos idPerfil y tipoAlumno de aquí, ya no los necesitamos en el formulario público
+  const { nombrecompleto, dni, correo, telefono, username, password } = req.body;
 
-  // Validar duplicados
+  // 1. Validar duplicados (Esto queda igual, es excelente)
   const [emailExists] = await db.query(verificarCorreoExistente, [correo]);
   if (emailExists.count > 0) {
     return errorResponse(res, 'El correo ya está registrado', 'DUPLICATE_EMAIL', 409);
@@ -39,7 +44,7 @@ exports.registro = asyncHandler(async (req, res) => {
     return errorResponse(res, 'El nombre de usuario ya está registrado', 'DUPLICATE_USERNAME', 409);
   }
 
-  // Crear persona
+  // 2. Crear persona (Datos humanos)
   const [personaResult] = await db.query(insertarPersona, [
     nombrecompleto,
     dni,
@@ -48,45 +53,28 @@ exports.registro = asyncHandler(async (req, res) => {
   ]);
   const personaId = personaResult.insertId;
 
-  // Hashear contraseña
+  // 3. Hashear contraseña
   const hashedPassword = await hashPassword(password);
 
-  // Crear usuario
+  // 4. Crear usuario (Aquí aplicamos TU lógica)
   const [usuarioResult] = await db.query(insertarUsuario, [
     personaId,
     username,
     hashedPassword,
-    idPerfil,
-    'activo',
+    null,        // <--- idPerfil entra como NULL (No tiene perfil asignado todavía)
+    'pendiente', // <--- Estado 'pendiente' (Bloqueado hasta que el admin lo apruebe)
   ]);
   const usuarioId = usuarioResult.insertId;
 
-  // Crear registro según tipo de perfil
-  if (idPerfil === ROLES.ALUMNO) {
-    await db.query(insertarAlumno, [personaId, tipoAlumno || 'amateur', 'activo']);
-  } else if (idPerfil === ROLES.PROFESOR) {
-    await db.query(insertarProfesor, [personaId, 'General']);
-  } else if (idPerfil === ROLES.ADMINISTRADOR) {
-    await db.query(insertarAdministrador, [personaId]);
-  }
+  // NOTA: Quitamos los "if (idPerfil === ROLES.ALUMNO)" porque eso lo va a hacer 
+  // el Administrador más adelante desde su pantalla de gestión.
 
-  // Obtener usuario creado
+  // 5. Obtener usuario creado
   const [nuevoUsuario] = await db.query(obtenerUsuarioRegistrado, [usuarioId]);
 
-  // Generar JWT
-  const token = generateToken({
-    idUsuario: nuevoUsuario[0].idUsuario,
-    correo: nuevoUsuario[0].correo,
-    username: nuevoUsuario[0].username,
-    idPerfil: idPerfil,
-  });
-
-  const [permisos] = await db.query(obtenerPermisosPorPerfil, [idPerfil]);
-
-  return successResponse(res, 'Usuario registrado exitosamente', {
-    token,
+  // 6. Devolvemos respuesta de éxito (Sin token, para que vaya al Login de una)
+  return successResponse(res, 'Usuario registrado. En espera de aprobación por el Administrador.', {
     usuario: nuevoUsuario[0],
-    permisos,
   }, 201);
 });
 
