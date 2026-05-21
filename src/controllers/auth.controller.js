@@ -79,7 +79,7 @@ exports.registro = asyncHandler(async (req, res) => {
 exports.login = asyncHandler(async (req, res) => {
   const { correo, password } = req.body;
 
-  // Buscar usuario por correo
+  // Buscar usuario por correo (Ahora trae también p.nombrePerfil gracias al nuevo ObtenerDatosLogin)
   const [usuarios] = await db.query(obtenerDatosLogin, [correo]);
 
   if (usuarios.length === 0) {
@@ -104,29 +104,28 @@ exports.login = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Correo o contraseña inválidos', 'INVALID_CREDENTIALS', 401);
   }
 
-  // Generar JWT
+  // 1. ✨ Metemos el nombre del perfil dentro del Token JWT
   const token = generateToken({
     idUsuario: usuario.idUsuario,
     correo: usuario.correo,
     username: usuario.username,
     idPerfil: usuario.idPerfil,
+    perfil: usuario.nombrePerfil // 👈 Guardamos 'admin' o lo que devuelva la base de datos
   });
 
-  // ✨ Manejo prolijo de permisos si el perfil es NULL:
   let permisos = [];
   if (usuario.idPerfil) {
-    // Si en un futuro tenés la query armada la ponés acá, por ahora lo dejamos vacío de forma segura
-    // const [permisosResult] = await db.query(obtenerPermisosPorPerfil, [usuario.idPerfil]);
-    // permisos = permisosResult;
+    // Espacio reservado para el ABM dinámico de perfiles posterior
   }
 
+  // 2. 🚀 Se lo mandamos limpio al Frontend en la respuesta exitosa
   return successResponse(res, 'Sesión iniciada exitosamente', {
     token,
     usuario: {
       idUsuario: usuario.idUsuario,
       nombrecompleto: usuario.nombrecompleto,
       correo: usuario.correo,
-      perfil: usuario.nombrePerfil || null, 
+      perfil: usuario.nombrePerfil || 'cliente', // 👈 Si es NULL en la BD, asume 'cliente' por defecto
       estado: usuario.estado,
     },
     permisos,
@@ -143,6 +142,7 @@ exports.me = asyncHandler(async (req, res) => {
       correo: req.user.correo,
       username: req.user.username,
       idPerfil: req.user.idPerfil,
+      perfil: req.user.perfil || 'cliente' // 👈 Clave para que React mantenga los accesos al recargar
     },
     permisos: [],
   });
