@@ -1,17 +1,17 @@
+// Contenido de ObtenerDatosLogin.js
 const obtenerDatosLogin = `
   SELECT 
     u.idUsuario, 
     u.username, 
-    u.contrasena, 
+    u.contrasena,    
+    u.estado, 
+    u.correo_verificado, 
     u.idPerfil,
-    p.nombrecompleto, 
-    p.correo, 
-    pf.nombrePerfil, 
-    u.estado
+    p.nombrecompleto,
+    p.correo
   FROM usuario u
-  INNER JOIN persona p ON u.idPersona = p.idpersona
-  LEFT JOIN perfil pf ON u.idPerfil = pf.idPerfil
-  WHERE p.correo = ? AND u.estado = 'activo'
+  INNER JOIN persona p ON u.idPersona = p.idPersona
+  WHERE p.correo = ?;
 `;
 
 module.exports = obtenerDatosLogin;

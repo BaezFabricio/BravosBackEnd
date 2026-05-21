@@ -22,4 +22,8 @@ router.post('/login', validateLogin, handleValidationErrors, authController.logi
  */
 router.get('/me', authenticateToken, authController.me);
 
+router.get('/verificar/:token', authController.verificarCuenta);
+
+router.post('/reenviar-verificacion', authController.reenviarVerificacion);
+
 module.exports = router;

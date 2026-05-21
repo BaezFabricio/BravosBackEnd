@@ -40,6 +40,12 @@ const envConfig = {
     level: process.env.LOG_LEVEL || 'info',
     format: process.env.LOG_FORMAT || 'json',
   },
+
+  // ✨ CONFIGURACIÓN SMTP PARA CORREOS REALES
+  smtp: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  }
 };
 
 module.exports = envConfig;
