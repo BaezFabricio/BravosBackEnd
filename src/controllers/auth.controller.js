@@ -7,7 +7,6 @@ const verificarUsernameExistente = require('../data/Auth/VerificarUsernameExiste
 const obtenerUsuarioRegistrado = require('../data/Auth/ObtenerUsuarioRegistrado');
 const insertarPersona = require('../data/Persona/InsertarPersona');
 const insertarUsuario = require('../data/Usuarios/InsertarUsuario');
-// ❌ Quitamos la importación de ObtenerPermisosPorPerfil que daba error
 const { hashPassword, comparePassword } = require('../functions/encryption');
 const { generateToken } = require('../functions/jwt');
 const { asyncHandler } = require('../utils/helpers');
@@ -20,57 +19,83 @@ const { sendVerificationEmail } = require('../functions/email.service');
 exports.registro = asyncHandler(async (req, res) => {
   const { nombrecompleto, dni, correo, telefono, username, password } = req.body;
 
-  // 1. Validar duplicados
+  // 1. 🛡️ VALIDACIONES ESTRICTAS DE DUPLICADOS CON RESPUESTAS ESPECÍFICAS
   const [emailExists] = await db.query(verificarCorreoExistente, [correo]);
-  if (emailExists.count > 0) {
-    return errorResponse(res, 'El correo ya está registrado', 'DUPLICATE_EMAIL', 409);
+  if (emailExists && emailExists[0]?.count > 0) {
+    return errorResponse(res, 'El correo electrónico ya se encuentra registrado.', 'DUPLICATE_EMAIL', 409);
   }
 
   const [dniExists] = await db.query(verificarDniExistente, [dni]);
-  if (dniExists.count > 0) {
-    return errorResponse(res, 'El DNI ya está registrado', 'DUPLICATE_DNI', 409);
+  if (dniExists && dniExists[0]?.count > 0) {
+    return errorResponse(res, 'El DNI ingresado ya se encuentra registrado.', 'DUPLICATE_DNI', 409);
   }
 
   const [usernameExists] = await db.query(verificarUsernameExistente, [username]);
-  if (usernameExists.count > 0) {
-    return errorResponse(res, 'El nombre de usuario ya está registrado', 'DUPLICATE_USERNAME', 409);
+  if (usernameExists && usernameExists[0]?.count > 0) {
+    return errorResponse(res, 'El nombre de usuario ya está en uso.', 'DUPLICATE_USERNAME', 409);
   }
 
-  // 2. Crear persona
-  const [personaResult] = await db.query(insertarPersona, [
-    nombrecompleto,
-    dni,
-    correo,
-    telefono || null,
-  ]);
-  const personaId = personaResult.insertId;
+  // Verificar si el teléfono ya está registrado
+  if (telefono) {
+    const [telefonoExists] = await db.query('SELECT COUNT(*) as count FROM persona WHERE telefono = ?', [telefono]);
+    if (telefonoExists && telefonoExists[0]?.count > 0) {
+      return errorResponse(res, 'El número de teléfono ya está registrado', 'DUPLICATE_TELEFONO', 409);
+    }
+  }
 
-  // 3. Hashear contraseña
-  const hashedPassword = await hashPassword(password);
+  // 2. 🧱 CONTROL DE TRANSACCIÓN NATIVA: Soluciona el error ER_UNSUPPORTED_PS
+  const connection = await db.getConnection();
+  await connection.beginTransaction();
 
-  // 4. Generar token único de verificación
-  const tokenVerificacion = crypto.randomBytes(32).toString('hex');
+  try {
+    // Crear persona usando la conexión dedicada
+    const [personaResult] = await connection.query(insertarPersona, [
+      nombrecompleto,
+      dni,
+      correo,
+      telefono || null,
+    ]);
+    const personaId = personaResult.insertId;
 
-  // 5. Crear usuario
-  const [usuarioResult] = await db.query(insertarUsuario, [
-    personaId,
-    username,
-    hashedPassword,
-    null,               // idPerfil entra en NULL
-    'pendiente',        // Estado inicial 'pendiente'
-    tokenVerificacion   
-  ]);
-  const usuarioId = usuarioResult.insertId;
+    // Hashear contraseña
+    const hashedPassword = await hashPassword(password);
 
-  // 6. Disparar correo de activación
-  await sendVerificationEmail(correo, nombrecompleto, tokenVerificacion);
+    // Generar token único de verificación
+    const tokenVerificacion = crypto.randomBytes(32).toString('hex');
 
-  // 7. Obtener usuario creado
-  const [nuevoUsuario] = await db.query(obtenerUsuarioRegistrado, [usuarioId]);
+    // Crear usuario usando la conexión dedicada
+    const [usuarioResult] = await connection.query(insertarUsuario, [
+      personaId,
+      username,
+      hashedPassword,
+      null,               // idPerfil entra en NULL
+      'pendiente',        // Estado inicial 'pendiente'
+      tokenVerificacion   
+    ]);
+    const usuarioId = usuarioResult.insertId;
 
-  return successResponse(res, 'Usuario registrado. Por favor verifica tu correo electrónico para activar la cuenta.', {
-    usuario: nuevoUsuario[0],
-  }, 201);
+    // Disparar correo de activación antes de confirmar en la Base de Datos
+    await sendVerificationEmail(correo, nombrecompleto, tokenVerificacion);
+
+    // 🚀 Si todo salió bien, guardamos los cambios de forma permanente en la BD
+    await connection.commit();
+    connection.release(); // Liberamos la conexión para que vuelva al pool
+
+    // Obtener usuario creado (volvemos a usar 'db' normalmente)
+    const [nuevoUsuario] = await db.query(obtenerUsuarioRegistrado, [usuarioId]);
+
+    return successResponse(res, 'Usuario registrado. Por favor verifica tu correo electrónico para activar la cuenta.', {
+      usuario: nuevoUsuario[0],
+    }, 201);
+
+  } catch (error) {
+    // ↩️ Si algo falla, cancelamos todo el registro y limpiamos la línea para no dejar basura
+    await connection.rollback();
+    connection.release();
+    
+    console.error("Error en el proceso de registro:", error);
+    return errorResponse(res, 'No se pudo completar el registro. Inténtalo de nuevo.', 'REGISTRATION_FAILED', 500);
+  }
 });
 
 /**
@@ -79,7 +104,6 @@ exports.registro = asyncHandler(async (req, res) => {
 exports.login = asyncHandler(async (req, res) => {
   const { correo, password } = req.body;
 
-  // Buscar usuario por correo (Ahora trae también p.nombrePerfil gracias al nuevo ObtenerDatosLogin)
   const [usuarios] = await db.query(obtenerDatosLogin, [correo]);
 
   if (usuarios.length === 0) {
@@ -88,7 +112,6 @@ exports.login = asyncHandler(async (req, res) => {
 
   const usuario = usuarios[0];
 
-  // Restricción de verificación de correo electrónico
   if (usuario.correo_verificado === 0) {
     return errorResponse(
       res, 
@@ -98,37 +121,29 @@ exports.login = asyncHandler(async (req, res) => {
     );
   }
 
-  // Validamos contraseña con tu función de encriptación
   const match = await comparePassword(password, usuario.contrasena);
   if (!match) {
     return errorResponse(res, 'Correo o contraseña inválidos', 'INVALID_CREDENTIALS', 401);
   }
 
-  // 1. ✨ Metemos el nombre del perfil dentro del Token JWT
   const token = generateToken({
     idUsuario: usuario.idUsuario,
     correo: usuario.correo,
     username: usuario.username,
     idPerfil: usuario.idPerfil,
-    perfil: usuario.nombrePerfil // 👈 Guardamos 'admin' o lo que devuelva la base de datos
+    perfil: usuario.nombrePerfil 
   });
 
-  let permisos = [];
-  if (usuario.idPerfil) {
-    // Espacio reservado para el ABM dinámico de perfiles posterior
-  }
-
-  // 2. 🚀 Se lo mandamos limpio al Frontend en la respuesta exitosa
   return successResponse(res, 'Sesión iniciada exitosamente', {
     token,
     usuario: {
       idUsuario: usuario.idUsuario,
       nombrecompleto: usuario.nombrecompleto,
       correo: usuario.correo,
-      perfil: usuario.nombrePerfil || 'cliente', // 👈 Si es NULL en la BD, asume 'cliente' por defecto
+      perfil: usuario.nombrePerfil || 'cliente', 
       estado: usuario.estado,
     },
-    permisos,
+    permisos: [],
   });
 });
 
@@ -142,7 +157,7 @@ exports.me = asyncHandler(async (req, res) => {
       correo: req.user.correo,
       username: req.user.username,
       idPerfil: req.user.idPerfil,
-      perfil: req.user.perfil || 'cliente' // 👈 Clave para que React mantenga los accesos al recargar
+      perfil: req.user.perfil || 'cliente' 
     },
     permisos: [],
   });
@@ -172,17 +187,38 @@ exports.verificarCuenta = asyncHandler(async (req, res) => {
 
 /**
  * POST /api/auth/reenviar-verificacion
+ * ✨ PERMITE ACTUALIZAR EL CORREO SI EL USUARIO SE EQUIVOCÓ
  */
 exports.reenviarVerificacion = asyncHandler(async (req, res) => {
-  const { correo } = req.body;
+  const { correo, nuevoCorreo, idUsuario } = req.body; 
 
-  const [usuarios] = await db.query(
-    'SELECT idUsuario, estado, correo_verificado FROM usuario u JOIN persona p ON u.idPersona = p.idPersona WHERE p.correo = ?', 
-    [correo]
-  );
+  let usuarioId = idUsuario;
+  let correoDestino = nuevoCorreo || correo;
 
-  if (usuarios.length === 0) {
-    return errorResponse(res, 'No existe ninguna cuenta registrada con este correo.', 'EMAIL_NOT_FOUND', 404);
+  if (nuevoCorreo) {
+    const [emailExists] = await db.query(
+      'SELECT p.idPersona FROM persona p JOIN usuario u ON p.idPersona = u.idPersona WHERE p.correo = ? AND u.idUsuario != ?', 
+      [nuevoCorreo, usuarioId]
+    );
+    if (emailExists && emailExists.length > 0) {
+      return errorResponse(res, 'El nuevo correo electrónico ya está siendo usado por otra cuenta.', 'DUPLICATE_EMAIL', 409);
+    }
+
+    await db.query(
+      'UPDATE persona p JOIN usuario u ON p.idPersona = u.idPersona SET p.correo = ? WHERE u.idUsuario = ?', 
+      [nuevoCorreo, usuarioId]
+    );
+  }
+
+  const queryBuscar = nuevoCorreo 
+    ? 'SELECT u.idUsuario, p.nombrecompleto, u.correo_verificado FROM usuario u JOIN persona p ON u.idPersona = p.idPersona WHERE u.idUsuario = ?'
+    : 'SELECT u.idUsuario, p.nombrecompleto, u.correo_verificado FROM usuario u JOIN persona p ON u.idPersona = p.idPersona WHERE p.correo = ?';
+  
+  const parametrosBuscar = nuevoCorreo ? [usuarioId] : [correo];
+  const [usuarios] = await db.query(queryBuscar, parametrosBuscar);
+
+  if (!usuarios || usuarios.length === 0) {
+    return errorResponse(res, 'No se encontró ninguna cuenta asociada para enviar la verificación.', 'USER_NOT_FOUND', 404);
   }
 
   const usuario = usuarios[0];
@@ -198,9 +234,9 @@ exports.reenviarVerificacion = asyncHandler(async (req, res) => {
     [nuevoToken, usuario.idUsuario]
   );
 
-  await sendVerificationEmail(correo, 'Alumno', nuevoToken);
+  await sendVerificationEmail(correoDestino, usuario.nombrecompleto, nuevoToken);
 
-  return successResponse(res, 'Se ha reenviado el enlace de verificación a tu correo.', null, 200);
+  return successResponse(res, 'Se ha enviado el código de verificación de forma exitosa.', { correoActualizado: correoDestino }, 200);
 });
 
 module.exports = exports;
