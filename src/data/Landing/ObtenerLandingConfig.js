@@ -10,11 +10,20 @@ const ObtenerLandingConfig = async () => {
     
     const config = {
       tituloHero: "Centro de Entrenamiento Bravos",
+      // Estilos configurables del título
+      tituloHeroSize: null,
+      tituloHeroFont: null,
+      tituloHeroAlign: null,
       logoUrl: "/logo-box-bravos-final.png",
       heroImages: { hero1: null, hero2: null, hero3: null }
     };
 
-    filasTexto.forEach(f => { if(f.clave === 'tituloHero') config.tituloHero = f.valor; });
+    filasTexto.forEach(f => {
+      if (f.clave === 'tituloHero') config.tituloHero = f.valor;
+      if (f.clave === 'tituloHeroSize') config.tituloHeroSize = f.valor;
+      if (f.clave === 'tituloHeroFont') config.tituloHeroFont = f.valor;
+      if (f.clave === 'tituloHeroAlign') config.tituloHeroAlign = f.valor;
+    });
     
     filasImagenes.forEach(f => {
       if (f.tipo === 'logo') config.logoUrl = f.url;

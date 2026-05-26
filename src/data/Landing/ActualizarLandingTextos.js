@@ -8,7 +8,8 @@ const ActualizarLandingTextos = async (datos) => {
   // Recorremos las claves enviadas desde el front
   for (const [clave, valor] of Object.entries(datos)) {
     let seccion = 'nosotros';
-    if (['titulo_principal'].includes(clave)) seccion = 'hero';
+    // Considerar cualquier clave que empiece por 'titulo' como parte de la sección hero
+    if (clave && typeof clave === 'string' && clave.toLowerCase().startsWith('titulo')) seccion = 'hero';
     if (['direccion', 'telefono', 'email', 'horario_semana', 'horario_sabado', 'horario_domingo'].includes(clave)) seccion = 'contacto';
 
     await db.query(
