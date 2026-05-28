@@ -142,6 +142,7 @@ exports.login = asyncHandler(async (req, res) => {
       correo: usuario.correo,
       perfil: usuario.nombrePerfil || 'cliente', 
       estado: usuario.estado,
+      avatarUrl: usuario.avatarUrl || null,
     },
     permisos: [],
   });
@@ -169,7 +170,8 @@ exports.me = asyncHandler(async (req, res) => {
       username: usuarioReal.username,             // <-- Username real
       idPerfil: req.user.idPerfil,                // <-- Mantenemos el ID de perfil del token
       perfil: usuarioReal.perfil || 'cliente',    // <-- Perfil mapeado desde la base de datos
-      estado: usuarioReal.estado
+      estado: usuarioReal.estado,
+      avatarUrl: usuarioReal.avatarUrl || null,
     },
     permisos: [], // Espacio listo si manejás roles/permisos más adelante
   });

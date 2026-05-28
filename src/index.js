@@ -4,6 +4,7 @@ const app = require('./app');
 const db = require('./config/db');
 const envConfig = require('./config/env');
 const Logger = require('./utils/logger');
+const crearTablaAvatarUsuario = require('./data/Avatar/CrearTablaAvatarUsuario');
 
 const logger = new Logger('Server');
 
@@ -24,6 +25,7 @@ async function startServer() {
   try {
     // Conectar a la BD
     await db.initializePool();
+    await db.query(crearTablaAvatarUsuario);
 
     // Iniciar servidor HTTP
     const server = app.listen(envConfig.port, () => {

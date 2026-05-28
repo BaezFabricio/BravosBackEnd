@@ -8,6 +8,7 @@ const eliminarUsuario = require('../data/Usuarios/EliminarUsuario');
 const insertarPersona = require('../data/Persona/InsertarPersona');
 const actualizarPersona = require('../data/Persona/ActualizarPersona');
 const eliminarPersona = require('../data/Persona/EliminarPersona');
+const cloudinary = require('../config/cloudinary');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse, paginatedResponse } = require('../utils/response');
 const { hashPassword } = require('../functions/encryption');
@@ -146,6 +147,45 @@ exports.delete = asyncHandler(async (req, res) => {
   return successResponse(res, 'Usuario eliminado exitosamente', {
     idUsuario: id,
     nombrecompleto: usuario.nombrecompleto,
+  });
+});
+
+/**
+ * PUT /api/usuarios/:id/avatar
+ * Actualiza la foto de perfil del usuario
+ */
+exports.updateAvatar = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { avatarData } = req.body;
+
+  if (!avatarData) {
+    return errorResponse(res, 'La imagen del avatar es obligatoria', 'AVATAR_REQUIRED', 400);
+  }
+
+  const [usuarioExistente] = await db.query(obtenerUsuarioPorId, [id]);
+  if (usuarioExistente.length === 0) {
+    return errorResponse(res, 'Usuario no encontrado', 'USER_NOT_FOUND', 404);
+  }
+
+  const resultado = await cloudinary.uploader.upload(avatarData, {
+    folder: 'bravos_avatars',
+    width: 400,
+    height: 400,
+    crop: 'fill',
+    gravity: 'face',
+    quality: 'auto',
+    fetch_format: 'auto',
+    resource_type: 'image',
+  });
+
+  const actualizarAvatarUsuario = require('../data/Avatar/ActualizarAvatarUsuario');
+  await db.query(actualizarAvatarUsuario, [id, resultado.secure_url]);
+
+  const [usuarioActualizado] = await db.query(obtenerUsuarioPorId, [id]);
+
+  return successResponse(res, 'Avatar actualizado exitosamente', {
+    avatarUrl: resultado.secure_url,
+    usuario: usuarioActualizado[0],
   });
 });
 

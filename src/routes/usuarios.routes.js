@@ -30,6 +30,12 @@ router.post('/', authenticateToken, requirePermission('Usuarios', 'alta'), usuar
 router.put('/:id', authenticateToken, allowSelfOrPermission('Usuarios', 'modificacion'), validateUpdateUser, handleValidationErrors, usuariosController.update);
 
 /**
+ * PUT /api/usuarios/:id/avatar
+ * Actualiza la foto de perfil del usuario
+ */
+router.put('/:id/avatar', authenticateToken, allowSelfOrPermission('Usuarios', 'modificacion'), usuariosController.updateAvatar);
+
+/**
  * PUT /api/usuarios/:id/estado
  * Cambia el estado de un usuario (solo admin)
  */

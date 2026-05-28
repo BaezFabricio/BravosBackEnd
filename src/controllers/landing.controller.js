@@ -36,10 +36,6 @@ const actualizarConfiguracion = async (req, res) => {
         // Configuración de transformaciones por tipo de imagen
         const transformaciones = {
           logo: {
-            width: 400,
-            height: 140,
-            crop: 'fill',
-            gravity: 'auto',
             quality: 'auto',
             fetch_format: 'auto',
             resource_type: 'auto'
