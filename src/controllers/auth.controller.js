@@ -12,6 +12,9 @@ const { generateToken } = require('../functions/jwt');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
 const { sendVerificationEmail } = require('../functions/email.service'); 
+const { sendRecoveryEmail } = require('../functions/email.service'); 
+// Almacenamiento temporal en memoria para códigos de recuperación (dev)
+const recoveryStore = new Map(); // key: email, value: { code, expiresAt }
 
 /**
  * POST /api/auth/registro
@@ -172,6 +175,10 @@ exports.me = asyncHandler(async (req, res) => {
       perfil: usuarioReal.perfil || 'cliente',    // <-- Perfil mapeado desde la base de datos
       estado: usuarioReal.estado,
       avatarUrl: usuarioReal.avatarUrl || null,
+      dni: usuarioReal.dni || null,
+      telefono: usuarioReal.telefono || null,
+      // Intentamos devolver una fecha de registro si la columna existe en la consulta
+      fechaRegistro: usuarioReal.fechaRegistro || usuarioReal.fecha_registro || usuarioReal.createdAt || usuarioReal.created_at || null,
     },
     permisos: [], // Espacio listo si manejás roles/permisos más adelante
   });
@@ -254,3 +261,71 @@ exports.reenviarVerificacion = asyncHandler(async (req, res) => {
 });
 
 module.exports = exports;
+
+/**
+ * POST /api/auth/recuperar-contrasena
+ * Maneja acciones: send_code, verify_code, reset_password
+ */
+exports.recuperarContrasena = asyncHandler(async (req, res) => {
+  const { email, action, code, password } = req.body;
+
+  if (!email) return errorResponse(res, 'El correo es requerido', 'MISSING_EMAIL', 400);
+
+  // Comprobamos si existe la persona/usuario
+  const [personas] = await db.query('SELECT p.*, u.idUsuario FROM persona p LEFT JOIN usuario u ON p.idPersona = u.idPersona WHERE p.correo = ?', [email]);
+  if (!personas || personas.length === 0) {
+    return errorResponse(res, 'No se encontró una cuenta asociada a ese correo', 'USER_NOT_FOUND', 404);
+  }
+
+  const persona = personas[0];
+
+  if (action === 'send_code') {
+    // Generar código de 6 dígitos
+    const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutos
+
+    recoveryStore.set(email, { code: newCode, expiresAt });
+
+    // Enviamos el correo con el código
+    await sendRecoveryEmail(email, persona.nombrecompleto, newCode);
+
+    return successResponse(res, 'Código enviado al correo', null, 200);
+  }
+
+  if (action === 'verify_code') {
+    const entry = recoveryStore.get(email);
+    if (!entry) return errorResponse(res, 'Código no encontrado o expirado', 'CODE_NOT_FOUND', 400);
+    if (Date.now() > entry.expiresAt) {
+      recoveryStore.delete(email);
+      return errorResponse(res, 'El código expiró', 'CODE_EXPIRED', 400);
+    }
+    if (entry.code !== String(code)) return errorResponse(res, 'Código inválido', 'INVALID_CODE', 400);
+
+    return successResponse(res, 'Código verificado', null, 200);
+  }
+
+  if (action === 'reset_password') {
+    if (!password) return errorResponse(res, 'La nueva contraseña es requerida', 'MISSING_PASSWORD', 400);
+
+    const entry = recoveryStore.get(email);
+    if (!entry) return errorResponse(res, 'Código no encontrado o expirado', 'CODE_NOT_FOUND', 400);
+    if (Date.now() > entry.expiresAt) {
+      recoveryStore.delete(email);
+      return errorResponse(res, 'El código expiró', 'CODE_EXPIRED', 400);
+    }
+    if (entry.code !== String(code)) return errorResponse(res, 'Código inválido', 'INVALID_CODE', 400);
+
+    // Hasheamos la nueva contraseña
+    const hashed = await hashPassword(password);
+
+    // Actualizamos la contraseña del usuario asociado
+    await db.query('UPDATE usuario u JOIN persona p ON u.idPersona = p.idPersona SET u.contrasena = ? WHERE p.correo = ?', [hashed, email]);
+
+    // Limpiamos el código
+    recoveryStore.delete(email);
+
+    return successResponse(res, 'Contraseña actualizada correctamente', null, 200);
+  }
+
+  return errorResponse(res, 'Acción inválida', 'INVALID_ACTION', 400);
+});
