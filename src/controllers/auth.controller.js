@@ -151,15 +151,27 @@ exports.login = asyncHandler(async (req, res) => {
  * GET /api/auth/me
  */
 exports.me = asyncHandler(async (req, res) => {
+  const [usuarios] = await db.query(obtenerUsuarioRegistrado, [req.user.idUsuario]);
+
+  // 2. Si por alguna razón el token es válido pero el usuario no existe en la BD
+  if (!usuarios || usuarios.length === 0) {
+    return errorResponse(res, 'Usuario no encontrado en el sistema.', 'USER_NOT_FOUND', 404);
+  }
+
+  const usuarioReal = usuarios[0];
+
+  // 3. Devolvemos la respuesta estructurada con los datos de tu Base de Datos
   return successResponse(res, 'Sesión obtenida correctamente', {
     usuario: {
-      idUsuario: req.user.idUsuario,
-      correo: req.user.correo,
-      username: req.user.username,
-      idPerfil: req.user.idPerfil,
-      perfil: req.user.perfil || 'cliente' 
+      idUsuario: usuarioReal.idUsuario,
+      nombrecompleto: usuarioReal.nombrecompleto, // <-- ¡Ahora sí viaja el nombre real!
+      correo: usuarioReal.correo,                 // <-- Mail real de la tabla persona
+      username: usuarioReal.username,             // <-- Username real
+      idPerfil: req.user.idPerfil,                // <-- Mantenemos el ID de perfil del token
+      perfil: usuarioReal.perfil || 'cliente',    // <-- Perfil mapeado desde la base de datos
+      estado: usuarioReal.estado
     },
-    permisos: [],
+    permisos: [], // Espacio listo si manejás roles/permisos más adelante
   });
 });
 
