@@ -1,4 +1,8 @@
-require('dotenv').config();
+const path = require('path');
+
+require('dotenv').config({
+  path: path.resolve(__dirname, '../../.env'),
+});
 
 const envConfig = {
   // Base de datos
@@ -28,6 +32,7 @@ const envConfig = {
   // Servidor
   port: process.env.PORT || 3001,
   nodeEnv: process.env.NODE_ENV || 'development',
+  backendUrl: (process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`).replace(/\/$/, ''),
 
   // API
   api: {

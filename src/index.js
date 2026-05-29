@@ -4,6 +4,7 @@ const app = require('./app');
 const db = require('./config/db');
 const envConfig = require('./config/env');
 const Logger = require('./utils/logger');
+const { releaseOccupiedPort } = require('./utils/releaseOccupiedPort');
 const crearTablaAvatarUsuario = require('./data/Avatar/CrearTablaAvatarUsuario');
 
 const logger = new Logger('Server');
@@ -22,10 +23,21 @@ const ASCII_ART = `
  * Inicia el servidor
  */
 async function startServer() {
+  const requireDbOnStartup = envConfig.nodeEnv === 'production';
+
   try {
-    // Conectar a la BD
-    await db.initializePool();
-    await db.query(crearTablaAvatarUsuario);
+    await releaseOccupiedPort(envConfig.port, logger);
+
+    // En desarrollo permitimos iniciar sin DB para facilitar pruebas de rutas no dependientes.
+    try {
+      await db.initializePool();
+      await db.query(crearTablaAvatarUsuario);
+    } catch (dbError) {
+      if (requireDbOnStartup) {
+        throw dbError;
+      }
+      logger.warn(`MySQL no disponible al iniciar (${dbError.code || dbError.message}). El servidor arrancara en modo degradado.`);
+    }
 
     // Iniciar servidor HTTP
     const server = app.listen(envConfig.port, () => {
@@ -37,6 +49,9 @@ async function startServer() {
       console.log(`  Base de datos: ${envConfig.db.database}`);
       console.log(`  URL API: http://localhost:${envConfig.port}${envConfig.api.prefix}/v${envConfig.api.version}`);
       console.log(`  Health check: http://localhost:${envConfig.port}/health\n`);
+      if (!requireDbOnStartup) {
+        console.log('  Nota: en desarrollo, la API inicia aunque MySQL no este disponible.');
+      }
     });
 
     // Manejo de señales para cierre graceful

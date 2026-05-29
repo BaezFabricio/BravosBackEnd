@@ -3,6 +3,7 @@ const envConfig = require('./config/env');
 const { corsMiddleware } = require('./config/cors');
 const routes = require('./routes');
 const { errorHandler, notFoundHandler } = require('./middlewares/error.middleware');
+const authController = require('./controllers/auth.controller');
 const Logger = require('./utils/logger');
 
 const logger = new Logger('App');
@@ -32,6 +33,10 @@ if (envConfig.nodeEnv === 'development') {
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Compatibilidad con enlaces viejos de verificación
+app.get('/verificar-cuenta/:token', authController.verificarCuenta);
+app.get('/api/auth/verificar/:token', authController.verificarCuenta);
 
 // TEST DIRECTO (Para validar que el puerto responda)
 app.get('/test-landing', (req, res) => {

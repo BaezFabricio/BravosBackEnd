@@ -1,7 +1,10 @@
 const nodemailer = require('nodemailer');
+const path = require('path');
 
 // Forzamos a este archivo a leer directamente el .env por si el pasamanos de config falla
-require('dotenv').config(); 
+require('dotenv').config({
+  path: path.resolve(__dirname, '../../.env'),
+}); 
 
 // Configuramos el transportador inyectando process.env directamente
 const transporter = nodemailer.createTransport({
@@ -18,8 +21,9 @@ const transporter = nodemailer.createTransport({
  * Función para enviar el correo con el enlace de verificación
  */
 const sendVerificationEmail = async (email, nombre, token) => {
-  // Enlace que irá al frontend para procesar la verificación
-  const urlVerificacion = `http://localhost:5173/verificar-cuenta/${token}`;
+  // Construir la URL de verificación usando la interfaz del frontend existente
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const urlVerificacion = `${frontendUrl}/verificar-cuenta/${token}`;
 
   const mailOptions = {
     from: `"Bravos Gym 🏋️‍♂️" <${process.env.SMTP_USER}>`,
@@ -55,10 +59,6 @@ const sendVerificationEmail = async (email, nombre, token) => {
     console.error('[Email Error] Falla en el envío SMTP:', error);
     throw new Error('No se pudo despachar el correo de verificación');
   }
-};
-
-module.exports = {
-  sendVerificationEmail
 };
 
 /**
