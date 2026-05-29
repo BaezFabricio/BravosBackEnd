@@ -211,15 +211,22 @@ exports.verificarCuenta = asyncHandler(async (req, res) => {
  * ✨ PERMITE ACTUALIZAR EL CORREO SI EL USUARIO SE EQUIVOCÓ
  */
 exports.reenviarVerificacion = asyncHandler(async (req, res) => {
-  const { correo, nuevoCorreo, idUsuario } = req.body; 
+  const { correo, nuevoCorreo, idUsuario } = req.body;
+
+  const correoNormalizado = typeof correo === 'string' ? correo.trim().toLowerCase() : '';
+  const nuevoCorreoNormalizado = typeof nuevoCorreo === 'string' ? nuevoCorreo.trim().toLowerCase() : '';
 
   let usuarioId = idUsuario;
-  let correoDestino = nuevoCorreo || correo;
+  let correoDestino = nuevoCorreoNormalizado || correoNormalizado;
 
-  if (nuevoCorreo) {
+  if (!correoDestino) {
+    return errorResponse(res, 'El correo es requerido para reenviar la verificación.', 'MISSING_EMAIL', 400);
+  }
+
+  if (nuevoCorreoNormalizado) {
     const [emailExists] = await db.query(
-      'SELECT p.idPersona FROM persona p JOIN usuario u ON p.idPersona = u.idPersona WHERE p.correo = ? AND u.idUsuario != ?', 
-      [nuevoCorreo, usuarioId]
+      'SELECT p.idPersona FROM persona p JOIN usuario u ON p.idPersona = u.idPersona WHERE LOWER(TRIM(p.correo)) = LOWER(TRIM(?)) AND u.idUsuario != ?', 
+      [nuevoCorreoNormalizado, usuarioId]
     );
     if (emailExists && emailExists.length > 0) {
       return errorResponse(res, 'El nuevo correo electrónico ya está siendo usado por otra cuenta.', 'DUPLICATE_EMAIL', 409);
@@ -227,15 +234,15 @@ exports.reenviarVerificacion = asyncHandler(async (req, res) => {
 
     await db.query(
       'UPDATE persona p JOIN usuario u ON p.idPersona = u.idPersona SET p.correo = ? WHERE u.idUsuario = ?', 
-      [nuevoCorreo, usuarioId]
+      [nuevoCorreoNormalizado, usuarioId]
     );
   }
 
-  const queryBuscar = nuevoCorreo 
-    ? 'SELECT u.idUsuario, p.nombrecompleto, u.correo_verificado FROM usuario u JOIN persona p ON u.idPersona = p.idPersona WHERE u.idUsuario = ?'
-    : 'SELECT u.idUsuario, p.nombrecompleto, u.correo_verificado FROM usuario u JOIN persona p ON u.idPersona = p.idPersona WHERE p.correo = ?';
-  
-  const parametrosBuscar = nuevoCorreo ? [usuarioId] : [correo];
+  const queryBuscar = usuarioId
+    ? 'SELECT u.idUsuario, p.nombrecompleto, u.correo_verificado, p.correo FROM usuario u JOIN persona p ON u.idPersona = p.idPersona WHERE u.idUsuario = ?'
+    : 'SELECT u.idUsuario, p.nombrecompleto, u.correo_verificado, p.correo FROM usuario u JOIN persona p ON u.idPersona = p.idPersona WHERE LOWER(TRIM(p.correo)) = LOWER(TRIM(?)) OR LOWER(TRIM(u.username)) = LOWER(TRIM(?))';
+
+  const parametrosBuscar = usuarioId ? [usuarioId] : [correoNormalizado, correoNormalizado];
   const [usuarios] = await db.query(queryBuscar, parametrosBuscar);
 
   if (!usuarios || usuarios.length === 0) {
@@ -243,10 +250,6 @@ exports.reenviarVerificacion = asyncHandler(async (req, res) => {
   }
 
   const usuario = usuarios[0];
-
-  if (usuario.correo_verificado === 1) {
-    return errorResponse(res, 'Esta cuenta ya se encuentra verificada. Podés iniciar sesión.', 'ALREADY_VERIFIED', 400);
-  }
 
   const nuevoToken = crypto.randomBytes(32).toString('hex');
 

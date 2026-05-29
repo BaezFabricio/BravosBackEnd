@@ -50,6 +50,7 @@ app.use('/landing', require('./routes/landing.routes.js'));
 
 // API routes globales (auth, usuarios, perfiles, modulos)
 app.use(`${envConfig.api.prefix}/v${envConfig.api.version}`, routes);
+app.use(`${envConfig.api.prefix}/vv1`, routes);
 
 // ========== MANEJO DE ERRORES ==========
 
