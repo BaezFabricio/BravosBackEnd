@@ -5,8 +5,19 @@ const envConfig = require('./env');
  * Configuración CORS personalizada
  */
 const corsOptions = {
-  // Ahora permitimos una lista de puertos para que no se bloquee con el frontend (5173)
-  origin: [envConfig.cors.origin, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: [
+    envConfig.cors.origin,
+
+    // Frontend local
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:5174',
+    'http://127.0.0.1:5174',
+
+    // Frontend por IP de red
+    'http://192.168.56.1:5174',
+    'http://192.168.1.5:5174',
+  ],
   credentials: envConfig.cors.credentials,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
