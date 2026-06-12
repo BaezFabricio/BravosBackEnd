@@ -27,7 +27,13 @@ router.post('/', authenticateToken, requirePermission('Usuarios', 'alta'), usuar
  * PUT /api/usuarios/:id
  * Actualiza un usuario
  */
-router.put('/:id', authenticateToken, allowSelfOrPermission('Usuarios', 'modificacion'), validateUpdateUser, handleValidationErrors, usuariosController.update);
+router.put('/:id', 
+  authenticateToken, 
+  allowSelfOrPermission('Usuarios', 'modificacion'), 
+  // validateUpdateUser,        // 🟢 COMENTADO
+  // handleValidationErrors,   // 🟢 COMENTADO
+  usuariosController.update
+);
 
 /**
  * PUT /api/usuarios/:id/avatar

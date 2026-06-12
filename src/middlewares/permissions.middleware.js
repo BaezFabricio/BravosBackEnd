@@ -2,24 +2,12 @@ const db = require('../config/db');
 const obtenerPermisoPerfilModulo = require('../data/Perfil/ObtenerPermisoPerfilModulo');
 const { errorResponse } = require('../utils/response');
 
-const PERMISSION_COLUMNS = {
-  alta: 'permiso_alta',
-  baja: 'permiso_baja',
-  modificacion: 'permiso_modificacion',
-  consulta: 'permiso_consulta',
-};
-
 function hasBootstrapAccess(req) {
-  return req.user && req.user.idPerfil === 1;
+  // El ID 1 sigue siendo el Admin General con pase libre absoluto
+  return req.user && Number(req.user.idPerfil) === 1;
 }
 
 function requirePermission(moduloNombre, accion) {
-  const permissionColumn = PERMISSION_COLUMNS[accion];
-
-  if (!permissionColumn) {
-    throw new Error(`Acción de permiso no válida: ${accion}`);
-  }
-
   return async (req, res, next) => {
     if (!req.user) {
       return errorResponse(res, 'No autenticado', 'NOT_AUTHENTICATED', 401);
@@ -29,13 +17,24 @@ function requirePermission(moduloNombre, accion) {
       return next();
     }
 
-    const [permisos] = await db.query(obtenerPermisoPerfilModulo, [req.user.idPerfil, moduloNombre]);
+    try {
+      const perfilIdActual = req.user.idPerfil;
 
-    if (permisos.length === 0 || !permisos[0][permissionColumn]) {
-      return errorResponse(res, 'Acceso denegado por permisos insuficientes', 'FORBIDDEN', 403);
+      // Ejecutamos la nueva query pasando los 3 parámetros clave
+      const [permisos] = await db.query(obtenerPermisoPerfilModulo, [perfilIdActual, moduloNombre, accion]);
+
+      // Si no se encontró ninguna fila, es porque no tiene ese permiso asignado
+      if (permisos.length === 0) {
+        console.log(`🚫 Acceso Denegado: Perfil ${perfilIdActual} no tiene el permiso [${moduloNombre} -> ${accion}]`);
+        return errorResponse(res, 'Acceso denegado por permisos insuficientes', 'FORBIDDEN', 403);
+      }
+
+      // Si existe el registro, le damos luz verde
+      next();
+    } catch (error) {
+      console.error('Error en middleware de permisos:', error);
+      return errorResponse(res, 'Error interno al validar permisos', 'INTERNAL_SERVER_ERROR', 500);
     }
-
-    next();
   };
 }
 
@@ -48,7 +47,7 @@ function allowSelfOrPermission(moduloNombre, accion) {
     }
 
     const userId = Number(req.params.id);
-    if (req.user.idUsuario === userId) {
+    if (Number(req.user.idUsuario || req.user.id) === userId) {
       return next();
     }
 

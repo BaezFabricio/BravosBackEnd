@@ -1,26 +1,38 @@
 const db = require('../config/db');
-const obtenerUsuarios = require('../data/Usuarios/ObtenerUsuarios');
 const obtenerUsuarioPorId = require('../data/Usuarios/ObtenerUsuarioPorId');
 const insertarUsuario = require('../data/Usuarios/InsertarUsuario');
-const actualizarUsuario = require('../data/Usuarios/ActualizarUsuario');
+const insertarPersona = require('../data/Persona/InsertarPersona');
 const actualizarEstadoUsuario = require('../data/Usuarios/ActualizarEstadoUsuario');
 const eliminarUsuario = require('../data/Usuarios/EliminarUsuario');
-const insertarPersona = require('../data/Persona/InsertarPersona');
-const actualizarPersona = require('../data/Persona/ActualizarPersona');
 const eliminarPersona = require('../data/Persona/EliminarPersona');
 const cloudinary = require('../config/cloudinary');
 const { asyncHandler } = require('../utils/helpers');
-const { successResponse, errorResponse, paginatedResponse } = require('../utils/response');
+const { successResponse, errorResponse } = require('../utils/response');
 const { hashPassword } = require('../functions/encryption');
 
 /**
  * GET /api/usuarios
- * Obtiene lista de todos los usuarios
+ * Obtiene lista de todos los usuarios con su perfil real calculado
  */
 exports.getAll = asyncHandler(async (req, res) => {
-  const [usuarios] = await db.query(obtenerUsuarios);
+  const sql = `
+    SELECT 
+      u.idUsuario,
+      u.username,
+      u.idPerfil,
+      u.estado,
+      p.nombrecompleto,
+      p.dni,
+      p.correo,
+      p.telefono,
+      perf.nombrePerfil AS nombrePerfil
+    FROM usuario u
+    INNER JOIN persona p ON u.idPersona = p.idPersona
+    LEFT JOIN perfil perf ON u.idPerfil = perf.idPerfil
+  `;
 
-  return successResponse(res, 'Usuarios obtenidos correctamente', usuarios);
+  const [rows] = await db.query(sql);
+  return successResponse(res, 'Usuarios obtenidos correctamente', rows);
 });
 
 /**
@@ -29,7 +41,6 @@ exports.getAll = asyncHandler(async (req, res) => {
  */
 exports.getById = asyncHandler(async (req, res) => {
   const { id } = req.params;
-
   const [usuarios] = await db.query(obtenerUsuarioPorId, [id]);
 
   if (usuarios.length === 0) {
@@ -41,12 +52,11 @@ exports.getById = asyncHandler(async (req, res) => {
 
 /**
  * POST /api/usuarios
- * Crea un nuevo usuario (solo admin)
+ * Crea un nuevo usuario
  */
 exports.create = asyncHandler(async (req, res) => {
   const { nombrecompleto, dni, correo, telefono, username, password, idPerfil } = req.body;
 
-  // Crear persona
   const [personaResult] = await db.query(insertarPersona, [
     nombrecompleto,
     dni,
@@ -55,10 +65,8 @@ exports.create = asyncHandler(async (req, res) => {
   ]);
   const personaId = personaResult.insertId;
 
-  // Hashear contraseña
   const hashedPassword = await hashPassword(password);
 
-  // Crear usuario
   const [usuarioResult] = await db.query(insertarUsuario, [
     personaId,
     username,
@@ -68,42 +76,44 @@ exports.create = asyncHandler(async (req, res) => {
   ]);
 
   const [nuevoUsuario] = await db.query(obtenerUsuarioPorId, [usuarioResult.insertId]);
-
   return successResponse(res, 'Usuario creado exitosamente', nuevoUsuario[0], 201);
 });
 
 /**
  * PUT /api/usuarios/:id
- * Actualiza datos de un usuario
+ * 🟢 RESTAURADO: Actualiza datos de un usuario de forma segura
  */
 exports.update = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { nombrecompleto, correo, telefono, username } = req.body;
+  const { nombre, nombrecompleto, email, correo, dni, telefono, username, idPerfil, estado } = req.body;
 
-  // Verificar que el usuario existe
-  const [usuarioExistente] = await db.query(obtenerUsuarioPorId, [id]);
-  if (usuarioExistente.length === 0) {
+  const [usuarios] = await db.query('SELECT * FROM usuario WHERE idUsuario = ?', [id]);
+  if (usuarios.length === 0) {
     return errorResponse(res, 'Usuario no encontrado', 'USER_NOT_FOUND', 404);
   }
+  const usuarioActual = usuarios[0];
 
-  const usuario = usuarioExistente[0];
+  const [personas] = await db.query('SELECT * FROM persona WHERE idPersona = ?', [usuarioActual.idPersona]);
+  const personaActual = personas[0] || {};
 
-  // Actualizar persona
-  await db.query(actualizarPersona, [
-    nombrecompleto || usuario.nombrecompleto,
-    correo || usuario.correo,
-    telefono || usuario.telefono,
-    usuario.idpersona,
-  ]);
+  const finalNombre = nombrecompleto || nombre || personaActual.nombrecompleto;
+  const finalCorreo = correo || email || personaActual.correo;
+  const finalDni = dni || personaActual.dni;
+  const finalTelefono = telefono || personaActual.telefono;
+  const finalUsername = username || email || correo || usuarioActual.username;
+  const finalEstado = estado || usuarioActual.estado;
+  
+  const finalIdPerfil = idPerfil !== undefined && idPerfil !== null && idPerfil !== "" 
+    ? parseInt(idPerfil) 
+    : usuarioActual.idPerfil;
 
-  // Actualizar usuario si hay username nuevo
-  if (username && username !== usuario.username) {
-    await db.query(actualizarUsuario, [username, usuario.idPerfil, id]);
-  }
+  const sqlUsuario = 'UPDATE usuario SET username = ?, idPerfil = ?, estado = ? WHERE idUsuario = ?';
+  await db.query(sqlUsuario, [finalUsername, finalIdPerfil, finalEstado, id]);
 
-  const [usuarioActualizado] = await db.query(obtenerUsuarioPorId, [id]);
+  const sqlPersona = 'UPDATE persona SET nombrecompleto = ?, dni = ?, correo = ?, telefono = ? WHERE idPersona = ?';
+  await db.query(sqlPersona, [finalNombre, finalDni, finalCorreo, finalTelefono, usuarioActual.idPersona]);
 
-  return successResponse(res, 'Usuario actualizado exitosamente', usuarioActualizado[0]);
+  return successResponse(res, 'Usuario actualizado con éxito');
 });
 
 /**
@@ -120,7 +130,6 @@ exports.cambiarEstado = asyncHandler(async (req, res) => {
   }
 
   await db.query(actualizarEstadoUsuario, [estado, id]);
-
   const [usuarioActualizado] = await db.query(obtenerUsuarioPorId, [id]);
 
   return successResponse(res, `Usuario marcado como ${estado}`, usuarioActualizado[0]);
@@ -128,7 +137,7 @@ exports.cambiarEstado = asyncHandler(async (req, res) => {
 
 /**
  * DELETE /api/usuarios/:id
- * Elimina un usuario
+ * Elimina un usuario y su persona vinculada
  */
 exports.delete = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -140,9 +149,8 @@ exports.delete = asyncHandler(async (req, res) => {
 
   const usuario = usuarioExistente[0];
 
-  // Eliminar usuario y persona
   await db.query(eliminarUsuario, [id]);
-  await db.query(eliminarPersona, [usuario.idpersona]);
+  await db.query(eliminarPersona, [usuario.idPersona || usuario.idpersona]);
 
   return successResponse(res, 'Usuario eliminado exitosamente', {
     idUsuario: id,
@@ -152,7 +160,7 @@ exports.delete = asyncHandler(async (req, res) => {
 
 /**
  * PUT /api/usuarios/:id/avatar
- * Actualiza la foto de perfil del usuario
+ * Actualiza la foto de perfil del usuario en Cloudinary
  */
 exports.updateAvatar = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -189,4 +197,13 @@ exports.updateAvatar = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = exports;
+// 🟢 EXPORTS SEGUROS SIN VARIABLES INDEFINIDAS
+module.exports = {
+  getAll: exports.getAll,
+  getById: exports.getById,
+  create: exports.create,
+  update: exports.update,
+  cambiarEstado: exports.cambiarEstado,
+  delete: exports.delete,
+  updateAvatar: exports.updateAvatar
+};

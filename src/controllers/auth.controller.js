@@ -129,6 +129,32 @@ exports.login = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Correo o contraseña inválidos', 'INVALID_CREDENTIALS', 401);
   }
 
+  // 1. 🟢 CONTROL DE ESTADO EXPLICITO: Si obtenerDatosLogin no traía el estado, lo buscamos acá
+  const [checkUser] = await db.query('SELECT estado FROM usuario WHERE idUsuario = ?', [usuario.idUsuario]);
+  const estadoReal = checkUser[0]?.estado || usuario.estado || 'activo';
+
+  // 2. 🟢 BUSCAMOS LOS PERMISOS REALES EN TU TABLA INTERMEDIA
+  const sqlPermisos = `
+    SELECT p.modulo, p.accion 
+    FROM perfilpermiso pp
+    INNER JOIN permiso p ON pp.idPermiso = p.idPermiso
+    WHERE pp.idPerfil = ?
+  `;
+  const [misPermisos] = await db.query(sqlPermisos, [usuario.idPerfil]);
+
+  // 3. 🟢 Formateamos los strings correspondientes (ej: "usuarios:alta")
+  const listaPermisosFormateada = [];
+  misPermisos.forEach(per => {
+    const mod = per.modulo.toLowerCase();
+    const acc = per.accion.toLowerCase();
+    
+    listaPermisosFormateada.push(`${mod}:${acc}`);
+    
+    if (acc === 'consulta') {
+      listaPermisosFormateada.push(`${mod}:ver`);
+    }
+  });
+
   const token = generateToken({
     idUsuario: usuario.idUsuario,
     correo: usuario.correo,
@@ -137,17 +163,18 @@ exports.login = asyncHandler(async (req, res) => {
     perfil: usuario.nombrePerfil 
   });
 
+  // 4. 🚀 Devolvemos la respuesta impecable al Frontend
   return successResponse(res, 'Sesión iniciada exitosamente', {
     token,
     usuario: {
       idUsuario: usuario.idUsuario,
       nombrecompleto: usuario.nombrecompleto,
       correo: usuario.correo,
-      perfil: usuario.nombrePerfil || 'cliente', 
-      estado: usuario.estado,
+      perfil: usuario.nombrePerfil || 'admin 2', 
+      estado: estadoReal, // 👈 Ahora viaja 'activo' sí o sí
       avatarUrl: usuario.avatarUrl || null,
     },
-    permisos: [],
+    permisos: listaPermisosFormateada, // 👈 Ahora el array viaja con tus datos de MySQL
   });
 });
 
@@ -157,30 +184,62 @@ exports.login = asyncHandler(async (req, res) => {
 exports.me = asyncHandler(async (req, res) => {
   const [usuarios] = await db.query(obtenerUsuarioRegistrado, [req.user.idUsuario]);
 
-  // 2. Si por alguna razón el token es válido pero el usuario no existe en la BD
   if (!usuarios || usuarios.length === 0) {
     return errorResponse(res, 'Usuario no encontrado en el sistema.', 'USER_NOT_FOUND', 404);
   }
 
   const usuarioReal = usuarios[0];
+  const idPerfilReal = usuarioReal.idPerfil;
 
-  // 3. Devolvemos la respuesta estructurada con los datos de tu Base de Datos
+  // 1. 🟢 BUSCAMOS LOS PERMISOS REALES EN LA BASE DE DATOS
+  const sqlPermisos = `
+    SELECT 
+      m.nombreModulo, 
+      pm.permiso_alta, 
+      pm.permiso_baja, 
+      pm.permiso_modificacion, 
+      pm.permiso_consulta
+    FROM perfil_modulo pm
+    INNER JOIN modulo m ON pm.idModulo = m.idModulo
+    WHERE pm.idPerfil = ?
+  `;
+  const [permisosBrutos] = await db.query(sqlPermisos, [idPerfilReal]);
+
+  // 2. 🟢 ARMAMOS EL ARRAY COMO LE GUSTA AL FRONTEND (ej: "usuarios:alta", "perfiles:ver")
+  const arrayPermisos = [];
+  
+  // Si es el super admin (ID 1), podríamos forzarle todos los accesos, 
+  // pero si tu admin 2 es el ID 7, leemos lo que devolvió MySQL:
+  permisosBrutos.forEach(fila => {
+    // Normalizamos el nombre del módulo (ej: 'Usuarios' pasa a 'usuarios')
+    const modulo = fila.nombreModulo.toLowerCase(); 
+
+    // Si tiene un 1 (o true) en la BD, lo agregamos a la mochila de permisos del usuario
+    if (fila.permiso_alta) arrayPermisos.push(`${modulo}:alta`);
+    if (fila.permiso_baja) arrayPermisos.push(`${modulo}:baja`);
+    if (fila.permiso_modificacion) arrayPermisos.push(`${modulo}:modificacion`);
+    if (fila.permiso_consulta) {
+      arrayPermisos.push(`${modulo}:consulta`);
+      arrayPermisos.push(`${modulo}:ver`); // 👈 Agregamos "ver" por si el frontend usa esa palabra en lugar de "consulta"
+    }
+  });
+
+  // 3. MANDAMOS LA RESPUESTA COMPLETA
   return successResponse(res, 'Sesión obtenida correctamente', {
     usuario: {
       idUsuario: usuarioReal.idUsuario,
-      nombrecompleto: usuarioReal.nombrecompleto, // <-- ¡Ahora sí viaja el nombre real!
-      correo: usuarioReal.correo,                 // <-- Mail real de la tabla persona
-      username: usuarioReal.username,             // <-- Username real
-      idPerfil: req.user.idPerfil,                // <-- Mantenemos el ID de perfil del token
-      perfil: usuarioReal.perfil || 'cliente',    // <-- Perfil mapeado desde la base de datos
+      nombrecompleto: usuarioReal.nombrecompleto,
+      correo: usuarioReal.correo,
+      username: usuarioReal.username,
+      idPerfil: idPerfilReal,
+      perfil: usuarioReal.nombrePerfil || 'cliente',
       estado: usuarioReal.estado,
       avatarUrl: usuarioReal.avatarUrl || null,
       dni: usuarioReal.dni || null,
       telefono: usuarioReal.telefono || null,
-      // Intentamos devolver una fecha de registro si la columna existe en la consulta
-      fechaRegistro: usuarioReal.fechaRegistro || usuarioReal.fecha_registro || usuarioReal.createdAt || usuarioReal.created_at || null,
     },
-    permisos: [], // Espacio listo si manejás roles/permisos más adelante
+    // 🚀 ¡AQUÍ VIAJA LA LLAVE MAESTRA!
+    permisos: arrayPermisos, 
   });
 });
 

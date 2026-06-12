@@ -1,14 +1,18 @@
 const express = require('express');
 const envConfig = require('./config/env');
 const { corsMiddleware } = require('./config/cors');
-const routes = require('./routes');
+
+// 🟢 CORRECCIÓN: Usamos require y le extraemos el .default para que sea 100% compatible
+const routes = require('./routes/index.js').default;
+
 const { errorHandler, notFoundHandler } = require('./middlewares/error.middleware');
 const authController = require('./controllers/auth.controller');
 const Logger = require('./utils/logger');
 
 const logger = new Logger('App');
-
 const app = express();
+
+app.use(express.json());
 
 // ========== MIDDLEWARES GLOBALES ==========
 
@@ -43,10 +47,10 @@ app.get('/test-landing', (req, res) => {
   res.json({ mensaje: "El backend sí responde en este puerto" });
 });
 
-// 🚨 INYECCIÓN DIRECTA DE LA LANDING:
-// Forzamos a Express a registrar la ruta en la raíz para asegurar el tiro
-// Esto mapea directamente a http://localhost:3001/landing/config
-app.use('/landing', require('./routes/landing.routes.js'));
+// INYECCIÓN DIRECTA DE LA LANDING:
+// Mantenemos tu require que extrae por defecto las rutas de la landing
+const landingRoutes = require('./routes/landing.routes.js');
+app.use('/landing', landingRoutes.default || landingRoutes);
 
 // API routes globales (auth, usuarios, perfiles, modulos)
 app.use(`${envConfig.api.prefix}/v${envConfig.api.version}`, routes);
