@@ -8,6 +8,7 @@ const actualizarClase = require('../data/Clases/ActualizarClase');
 const actualizarEstadoClase = require('../data/Clases/ActualizarEstadoClase');
 const eliminarClase = require('../data/Clases/EliminarClase');
 const insertarHorarioClase = require('../data/HorariosClase/InsertarHorarioClase');
+const eliminarHorariosPorClase = require('../data/HorariosClase/EliminarHorariosPorClase');
 
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
@@ -111,7 +112,7 @@ exports.insert = asyncHandler(async (req, res) => {
 
 /**
  * PUT /api/clases/:id
- * Actualiza una clase existente
+ * Actualiza una clase existente y sus horarios
  */
 exports.update = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -123,11 +124,23 @@ exports.update = asyncHandler(async (req, res) => {
     cupoDisponible,
     estado,
     idGimnasio,
-    idProfesor
+    idProfesor,
+    diasSemana,
+    horaInicio,
+    horaFin,
+    turno
   } = req.body;
 
   if (!nombreClase || !tipoClase || !cupoMaximo || !cupoDisponible || !estado || !idGimnasio || !idProfesor) {
-    return errorResponse(res, 'Todos los campos son obligatorios', 400);
+    return errorResponse(res, 'Todos los campos de la clase son obligatorios', 400);
+  }
+
+  if (!diasSemana || !Array.isArray(diasSemana) || diasSemana.length === 0) {
+    return errorResponse(res, 'Debe seleccionar al menos un día para la clase', 400);
+  }
+
+  if (!horaInicio || !horaFin || !turno) {
+    return errorResponse(res, 'Horario, hora de inicio, hora de fin y turno son obligatorios', 400);
   }
 
   const [claseExistente] = await db.query(obtenerClasePorId, [id]);
@@ -147,6 +160,18 @@ exports.update = asyncHandler(async (req, res) => {
     id
   ]);
 
+  await db.query(eliminarHorariosPorClase, [id]);
+
+  for (const dia of diasSemana) {
+    await db.query(insertarHorarioClase, [
+      dia,
+      horaInicio,
+      horaFin,
+      turno,
+      id
+    ]);
+  }
+
   return successResponse(res, 'Clase actualizada correctamente', {
     idClase: Number(id),
     nombreClase,
@@ -155,7 +180,13 @@ exports.update = asyncHandler(async (req, res) => {
     cupoDisponible,
     estado,
     idGimnasio,
-    idProfesor
+    idProfesor,
+    horarios: diasSemana.map((dia) => ({
+      dia,
+      horaInicio,
+      horaFin,
+      turno
+    }))
   });
 });
 
@@ -187,7 +218,7 @@ exports.updateEstado = asyncHandler(async (req, res) => {
 
 /**
  * DELETE /api/clases/:id
- * Elimina una clase
+ * Elimina una clase y sus horarios asociados
  */
 exports.delete = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -197,6 +228,8 @@ exports.delete = asyncHandler(async (req, res) => {
   if (claseExistente.length === 0) {
     return errorResponse(res, 'Clase no encontrada', 404);
   }
+
+  await db.query(eliminarHorariosPorClase, [id]);
 
   await db.query(eliminarClase, [id]);
 
