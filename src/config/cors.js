@@ -19,14 +19,8 @@ const isAllowedDevOrigin = (origin) => {
  * Configuración CORS personalizada
  */
 const corsOptions = {
-  origin: (origin, callback) => {
-    if (isAllowedDevOrigin(origin)) {
-      callback(null, true);
-      return;
-    }
-
-    callback(new Error(`Origen no permitido por CORS: ${origin}`));
-  },
+  // Ahora permitimos una lista de puertos para que no se bloquee con el frontend (5173)
+  origin: [envConfig.cors.origin, 'http://localhost:5173', 'http://127.0.0.1:5173'],
   credentials: envConfig.cors.credentials,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
