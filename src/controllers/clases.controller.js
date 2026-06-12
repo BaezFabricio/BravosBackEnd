@@ -1,11 +1,13 @@
 const db = require('../config/db');
 
+
 const obtenerClases = require('../data/Clases/ObtenerClases');
 const obtenerClasePorId = require('../data/Clases/ObtenerClasePorId');
 const insertarClase = require('../data/Clases/InsertarClase');
 const actualizarClase = require('../data/Clases/ActualizarClase');
 const actualizarEstadoClase = require('../data/Clases/ActualizarEstadoClase');
 const eliminarClase = require('../data/Clases/EliminarClase');
+const insertarHorarioClase = require('../data/HorariosClase/InsertarHorarioClase');
 
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
@@ -38,7 +40,7 @@ exports.getById = asyncHandler(async (req, res) => {
 
 /**
  * POST /api/clases
- * Crea una nueva clase
+ * Crea una nueva clase y sus horarios
  */
 exports.insert = asyncHandler(async (req, res) => {
   const {
@@ -48,11 +50,23 @@ exports.insert = asyncHandler(async (req, res) => {
     cupoDisponible,
     estado,
     idGimnasio,
-    idProfesor
+    idProfesor,
+    diasSemana,
+    horaInicio,
+    horaFin,
+    turno
   } = req.body;
 
   if (!nombreClase || !tipoClase || !cupoMaximo || !cupoDisponible || !estado || !idGimnasio || !idProfesor) {
-    return errorResponse(res, 'Todos los campos son obligatorios', 400);
+    return errorResponse(res, 'Todos los campos de la clase son obligatorios', 400);
+  }
+
+  if (!diasSemana || !Array.isArray(diasSemana) || diasSemana.length === 0) {
+    return errorResponse(res, 'Debe seleccionar al menos un día para la clase', 400);
+  }
+
+  if (!horaInicio || !horaFin || !turno) {
+    return errorResponse(res, 'Horario, hora de inicio, hora de fin y turno son obligatorios', 400);
   }
 
   const [result] = await db.query(insertarClase, [
@@ -65,15 +79,33 @@ exports.insert = asyncHandler(async (req, res) => {
     idProfesor
   ]);
 
-  return successResponse(res, 'Clase creada correctamente', {
-    idClase: result.insertId,
+  const idClase = result.insertId;
+
+  for (const dia of diasSemana) {
+    await db.query(insertarHorarioClase, [
+      dia,
+      horaInicio,
+      horaFin,
+      turno,
+      idClase
+    ]);
+  }
+
+  return successResponse(res, 'Clase creada correctamente con sus horarios', {
+    idClase,
     nombreClase,
     tipoClase,
     cupoMaximo,
     cupoDisponible,
     estado,
     idGimnasio,
-    idProfesor
+    idProfesor,
+    horarios: diasSemana.map((dia) => ({
+      dia,
+      horaInicio,
+      horaFin,
+      turno
+    }))
   }, 201);
 });
 
