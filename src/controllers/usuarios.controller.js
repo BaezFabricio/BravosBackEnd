@@ -189,4 +189,187 @@ exports.updateAvatar = asyncHandler(async (req, res) => {
   });
 });
 
+exports.getAbonosByUsuario = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const [alumnos] = await db.query(
+    `SELECT a.idAlumno
+     FROM alumno a
+     INNER JOIN usuario u ON a.idPersona = u.idPersona
+     WHERE u.idUsuario = ?`,
+    [id]
+  );
+
+  if (alumnos.length === 0) {
+    return successResponse(res, 'El usuario no tiene alumno asociado', []);
+  }
+
+  const idAlumno = alumnos[0].idAlumno;
+
+  const [abonos] = await db.query(
+    `SELECT 
+      c.idCredito AS id,
+      p.fechaPago AS creado,
+      c.fechaInicio AS inicio,
+      c.fechaVencimiento AS vencimiento,
+      pl.nombre AS abono,
+      c.totalCreditos AS turnos,
+      0 AS ajuste,
+      c.creditosUtilizados AS usados,
+      c.creditosDisponibles AS disponibles,
+      c.estado
+    FROM credito c
+    INNER JOIN pago p ON c.idPago = p.idPago
+    INNER JOIN plan pl ON p.idPlan = pl.idPlan
+    WHERE c.idAlumno = ?
+    ORDER BY c.fechaInicio DESC`,
+    [idAlumno]
+  );
+
+  return successResponse(res, 'Abonos obtenidos correctamente', abonos);
+});
+
+exports.createAbonoUsuario = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const {
+    tipoAbono,
+    fechaInicio,
+    fechaVencimiento,
+    metodoPago,
+    importe,
+  } = req.body;
+
+  const [alumnos] = await db.query(
+    `SELECT a.idAlumno
+     FROM alumno a
+     INNER JOIN usuario u ON a.idPersona = u.idPersona
+     WHERE u.idUsuario = ?`,
+    [id]
+  );
+
+  if (alumnos.length === 0) {
+    return errorResponse(res, 'El usuario no tiene alumno asociado', 'ALUMNO_NOT_FOUND', 404);
+  }
+
+  const idAlumno = alumnos[0].idAlumno;
+
+  const [planes] = await db.query(
+    `SELECT idPlan, nombre, precio, cantidadCreditos
+     FROM plan
+     WHERE UPPER(nombre) = UPPER(?)`,
+    [tipoAbono]
+  );
+
+  if (planes.length === 0) {
+    return errorResponse(res, 'Plan no encontrado', 'PLAN_NOT_FOUND', 404);
+  }
+
+  const plan = planes[0];
+
+  const montoFinal = importe || plan.precio;
+  const fechaPago = new Date();
+
+  const [pagoResult] = await db.query(
+    `INSERT INTO pago
+     (fechaPago, importe, formaPago, estadoPago, fechaVencimiento, idAlumno, idPlan)
+     VALUES (?, ?, ?, 'confirmado', ?, ?, ?)`,
+    [
+      fechaPago,
+      montoFinal,
+      metodoPago || 'Efectivo',
+      fechaVencimiento,
+      idAlumno,
+      plan.idPlan,
+    ]
+  );
+
+  await db.query(
+    `INSERT INTO credito
+     (totalCreditos, creditosDisponibles, creditosUtilizados, fechaInicio, fechaVencimiento, estado, idAlumno, idPago)
+     VALUES (?, ?, 0, ?, ?, 'ACTIVO', ?, ?)`,
+    [
+      plan.cantidadCreditos,
+      plan.cantidadCreditos,
+      fechaInicio,
+      fechaVencimiento,
+      idAlumno,
+      pagoResult.insertId,
+    ]
+  );
+
+  return successResponse(res, 'Abono cargado correctamente', null, 201);
+});
+
+exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
+  const { idCredito } = req.params;
+
+  const {
+    fechaInicio,
+    fechaVencimiento,
+    turnos,
+    ajuste,
+    estado,
+  } = req.body;
+
+  const totalCreditos = Number(turnos) + Number(ajuste || 0);
+
+  const [creditoExistente] = await db.query(
+    `SELECT idCredito, creditosUtilizados
+     FROM credito
+     WHERE idCredito = ?`,
+    [idCredito]
+  );
+
+  if (creditoExistente.length === 0) {
+    return errorResponse(res, 'Abono no encontrado', 'ABONO_NOT_FOUND', 404);
+  }
+
+  const usados = creditoExistente[0].creditosUtilizados || 0;
+  const disponibles = totalCreditos - usados;
+
+  await db.query(
+    `UPDATE credito
+     SET fechaInicio = ?,
+         fechaVencimiento = ?,
+         totalCreditos = ?,
+         creditosDisponibles = ?,
+         estado = ?
+     WHERE idCredito = ?`,
+    [
+      fechaInicio,
+      fechaVencimiento,
+      totalCreditos,
+      disponibles,
+      estado,
+      idCredito,
+    ]
+  );
+
+  return successResponse(res, 'Abono modificado correctamente');
+});
+
+exports.cancelarAbonoUsuario = asyncHandler(async (req, res) => {
+  const { idCredito } = req.params;
+
+  const [creditoExistente] = await db.query(
+    `SELECT idCredito FROM credito WHERE idCredito = ?`,
+    [idCredito]
+  );
+
+  if (creditoExistente.length === 0) {
+    return errorResponse(res, 'Abono no encontrado', 'ABONO_NOT_FOUND', 404);
+  }
+
+  await db.query(
+    `UPDATE credito
+     SET estado = 'CANCELADO',
+         creditosDisponibles = 0
+     WHERE idCredito = ?`,
+    [idCredito]
+  );
+
+  return successResponse(res, 'Abono cancelado correctamente');
+});
+
 module.exports = exports;

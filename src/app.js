@@ -31,26 +31,32 @@ if (envConfig.nodeEnv === 'development') {
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Compatibilidad con enlaces viejos de verificación
 app.get('/verificar-cuenta/:token', authController.verificarCuenta);
 app.get('/api/auth/verificar/:token', authController.verificarCuenta);
 
-// TEST DIRECTO (Para validar que el puerto responda)
+// Test directo
 app.get('/test-landing', (req, res) => {
-  res.json({ mensaje: "El backend sí responde en este puerto" });
+  res.json({
+    mensaje: 'El backend sí responde en este puerto',
+  });
 });
 
-// 🚨 INYECCIÓN DIRECTA DE LA LANDING:
-// Forzamos a Express a registrar la ruta en la raíz para asegurar el tiro
-// Esto mapea directamente a http://localhost:3001/landing/config
+// Landing directa
 app.use('/landing', require('./routes/landing.routes.js'));
 
-// API routes globales (auth, usuarios, perfiles, modulos)
-app.use(`${envConfig.api.prefix}/v${envConfig.api.version}`, routes);
-app.use(`${envConfig.api.prefix}/vv1`, routes);
+// API routes globales
+const apiV1 = `${envConfig.api.prefix}/v${envConfig.api.version}`;
+const apiVV1 = `${envConfig.api.prefix}/vv1`;
+
+app.use(apiV1, routes);
+app.use(apiVV1, routes);
 
 // ========== MANEJO DE ERRORES ==========
 
