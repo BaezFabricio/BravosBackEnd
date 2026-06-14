@@ -1,15 +1,13 @@
 const db = require('../config/db');
-const obtenerProfesores = require('../data/Profesores/ObtenerProfesores');
-
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse } = require('../utils/response');
+const obtenerProfesoresActivos = require('../data/Profesores/ObtenerProfesoresActivos');
 
 /**
- * GET /api/profesores
- * Obtiene todos los profesores
+ * GET /api/vv1/profesores
+ * Obtiene la lista de profesores filtrados dinámicamente por sus permisos de perfil
  */
 exports.getAll = asyncHandler(async (req, res) => {
-  const [profesores] = await db.query(obtenerProfesores);
-
-  return successResponse(res, 'Profesores obtenidos correctamente', profesores);
+  const [profesores] = await db.query(obtenerProfesoresActivos);
+  return successResponse(res, 'Profesores activos recuperados correctamente', profesores);
 });

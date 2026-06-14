@@ -8,10 +8,8 @@ const obtenerClasePorId = `
     c.estado,
     c.idGimnasio,
     c.idProfesor,
-
-    p.especialidad,
+    
     per.nombrecompleto AS nombreProfesor,
-
     MIN(h.horaInicio) AS horaInicio,
     MIN(h.horaFin) AS horaFin,
     MIN(h.turno) AS turno,
@@ -21,23 +19,24 @@ const obtenerClasePorId = `
       SEPARATOR ','
     ) AS diasSemana
 
-  FROM clase c
+  -- 🟢 CORREGIDO: Apunta a tus tablas reales 'diaclase' y los LEFT JOINs seguros
+  FROM diaclase c
   LEFT JOIN profesor p ON c.idProfesor = p.idProfesor
-  LEFT JOIN persona per ON p.idPersona = per.idpersona
+  LEFT JOIN persona per ON p.idPersona = per.idPersona
   LEFT JOIN horarioclase h ON c.idClase = h.idClase
 
+  -- 🟢 FILTRO ESPECÍFICO: Trae solo la clase que seleccionaste
   WHERE c.idClase = ?
 
   GROUP BY 
-    c.idClase,
-    c.nombreClase,
-    c.tipoClase,
-    c.cupoMaximo,
-    c.cupoDisponible,
-    c.estado,
-    c.idGimnasio,
-    c.idProfesor,
-    p.especialidad,
+    c.idClase, 
+    c.nombreClase, 
+    c.tipoClase, 
+    c.cupoMaximo, 
+    c.cupoDisponible, 
+    c.estado, 
+    c.idGimnasio, 
+    c.idProfesor, 
     per.nombrecompleto
 `;
 

@@ -2,8 +2,8 @@ const express = require('express');
 const envConfig = require('./config/env');
 const { corsMiddleware } = require('./config/cors');
 
-// 🟢 CORRECCIÓN: Usamos require y le extraemos el .default para que sea 100% compatible
-const routes = require('./routes/index.js').default;
+const routes = require('./routes/index.js');
+const profesoresRouter = require('./routes/profesores.routes');
 
 const { errorHandler, notFoundHandler } = require('./middlewares/error.middleware');
 const authController = require('./controllers/auth.controller');
@@ -12,7 +12,6 @@ const Logger = require('./utils/logger');
 const logger = new Logger('App');
 const app = express();
 
-app.use(express.json());
 
 // ========== MIDDLEWARES GLOBALES ==========
 
@@ -20,8 +19,8 @@ app.use(express.json());
 app.use(corsMiddleware);
 
 // Body parsers
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Logging en desarrollo
 if (envConfig.nodeEnv === 'development') {
@@ -55,6 +54,9 @@ app.use('/landing', landingRoutes.default || landingRoutes);
 // API routes globales (auth, usuarios, perfiles, modulos)
 app.use(`${envConfig.api.prefix}/v${envConfig.api.version}`, routes);
 app.use(`${envConfig.api.prefix}/vv1`, routes);
+
+app.use('/api/vv1/profesores', profesoresRouter);
+
 
 // ========== MANEJO DE ERRORES ==========
 

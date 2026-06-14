@@ -1,5 +1,5 @@
 const insertarClase = `
-  INSERT INTO clase (
+  INSERT INTO diaclase (
     nombreClase,
     tipoClase,
     cupoMaximo,

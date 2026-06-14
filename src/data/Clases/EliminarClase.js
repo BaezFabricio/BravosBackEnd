@@ -1,6 +1,6 @@
 const eliminarClase = `
-  DELETE FROM clase
-  WHERE idClase = ?
+  DELETE FROM diaclase 
+  WHERE idClase = ?;
 `;
 
 module.exports = eliminarClase;

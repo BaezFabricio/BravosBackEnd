@@ -1,6 +1,5 @@
 const eliminarHorariosPorClase = `
-  DELETE FROM horarioclase
-  WHERE idClase = ?
+  DELETE FROM horarioclase 
+  WHERE idClase = ?;
 `;
-
 module.exports = eliminarHorariosPorClase;

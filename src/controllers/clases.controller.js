@@ -1,6 +1,5 @@
 const db = require('../config/db');
 
-
 const obtenerClases = require('../data/Clases/ObtenerClases');
 const obtenerClasePorId = require('../data/Clases/ObtenerClasePorId');
 const insertarClase = require('../data/Clases/InsertarClase');
@@ -9,18 +8,27 @@ const actualizarEstadoClase = require('../data/Clases/ActualizarEstadoClase');
 const eliminarClase = require('../data/Clases/EliminarClase');
 const insertarHorarioClase = require('../data/HorariosClase/InsertarHorarioClase');
 const eliminarHorariosPorClase = require('../data/HorariosClase/EliminarHorariosPorClase');
+const queryObtenerClasesAlumnos = require('../data/Clases/ObtenerClasesAlumnos');
 
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
 
 /**
  * GET /api/clases
- * Obtiene todas las clases
+ * Obtiene todas las clases agrupadas (Para uso del Panel de Administración)
  */
 exports.getAll = asyncHandler(async (req, res) => {
   const [clases] = await db.query(obtenerClases);
-
   return successResponse(res, 'Clases obtenidas correctamente', clases);
+});
+
+/**
+ * GET /api/clases/disponibles
+ * * Obtiene las clases desglosadas por día/horario individual (Para Reservas de Alumnos)
+ */
+exports.getClasesDisponibles = asyncHandler(async (req, res) => {
+  const [rows] = await db.query(queryObtenerClasesAlumnos);
+  return successResponse(res, 'Turnos disponibles obtenidos correctamente', rows);
 });
 
 /**
@@ -29,19 +37,18 @@ exports.getAll = asyncHandler(async (req, res) => {
  */
 exports.getById = asyncHandler(async (req, res) => {
   const { id } = req.params;
-
   const [clase] = await db.query(obtenerClasePorId, [id]);
 
   if (clase.length === 0) {
     return errorResponse(res, 'Clase no encontrada', 404);
   }
 
-  return successResponse(res, 'Clase obtenida correctamente', clase[0]);
+  return successResponse(res, 'Clase obtuvo correctamente', clase[0]);
 });
 
 /**
  * POST /api/clases
- * Crea una nueva clase y sus horarios
+ * Crea una nueva clase en diaclase salteándose la tabla gimnasio
  */
 exports.insert = asyncHandler(async (req, res) => {
   const {
@@ -50,7 +57,6 @@ exports.insert = asyncHandler(async (req, res) => {
     cupoMaximo,
     cupoDisponible,
     estado,
-    idGimnasio,
     idProfesor,
     diasSemana,
     horaInicio,
@@ -58,7 +64,7 @@ exports.insert = asyncHandler(async (req, res) => {
     turno
   } = req.body;
 
-  if (!nombreClase || !tipoClase || !cupoMaximo || !cupoDisponible || !estado || !idGimnasio || !idProfesor) {
+  if (!nombreClase || !tipoClase || !cupoMaximo || !cupoDisponible || !estado || !idProfesor) {
     return errorResponse(res, 'Todos los campos de la clase son obligatorios', 400);
   }
 
@@ -76,7 +82,7 @@ exports.insert = asyncHandler(async (req, res) => {
     cupoMaximo,
     cupoDisponible,
     estado,
-    idGimnasio,
+    null, 
     idProfesor
   ]);
 
@@ -99,7 +105,7 @@ exports.insert = asyncHandler(async (req, res) => {
     cupoMaximo,
     cupoDisponible,
     estado,
-    idGimnasio,
+    idGimnasio: null,
     idProfesor,
     horarios: diasSemana.map((dia) => ({
       dia,
@@ -112,18 +118,16 @@ exports.insert = asyncHandler(async (req, res) => {
 
 /**
  * PUT /api/clases/:id
- * Actualiza una clase existente y sus horarios
+ * Actualiza una clase existente forzando NULL en el gimnasio
  */
 exports.update = asyncHandler(async (req, res) => {
   const { id } = req.params;
-
   const {
     nombreClase,
     tipoClase,
     cupoMaximo,
     cupoDisponible,
     estado,
-    idGimnasio,
     idProfesor,
     diasSemana,
     horaInicio,
@@ -131,7 +135,7 @@ exports.update = asyncHandler(async (req, res) => {
     turno
   } = req.body;
 
-  if (!nombreClase || !tipoClase || !cupoMaximo || !cupoDisponible || !estado || !idGimnasio || !idProfesor) {
+  if (!nombreClase || !tipoClase || !cupoMaximo || !cupoDisponible || !estado || !idProfesor) {
     return errorResponse(res, 'Todos los campos de la clase son obligatorios', 400);
   }
 
@@ -155,7 +159,7 @@ exports.update = asyncHandler(async (req, res) => {
     cupoMaximo,
     cupoDisponible,
     estado,
-    idGimnasio,
+    null, 
     idProfesor,
     id
   ]);
@@ -179,7 +183,7 @@ exports.update = asyncHandler(async (req, res) => {
     cupoMaximo,
     cupoDisponible,
     estado,
-    idGimnasio,
+    idGimnasio: null,
     idProfesor,
     horarios: diasSemana.map((dia) => ({
       dia,
@@ -230,8 +234,18 @@ exports.delete = asyncHandler(async (req, res) => {
   }
 
   await db.query(eliminarHorariosPorClase, [id]);
-
   await db.query(eliminarClase, [id]);
 
   return successResponse(res, 'Clase eliminada correctamente');
 });
+
+// EXPORTS SEGUROS Y UNIFICADOS
+module.exports = {
+  getAll: exports.getAll,
+  getClasesDisponibles: exports.getClasesDisponibles, // 🟢 Ahora sí exportado correctamente
+  getById: exports.getById,
+  insert: exports.insert,
+  update: exports.update,
+  updateEstado: exports.updateEstado,
+  delete: exports.delete
+};

@@ -1,5 +1,7 @@
-import express from 'express';
-import { guardarPerfilCompleto, eliminarPerfil, obtenerPerfiles } from '../controllers/perfiles.controller.js';
+const express = require('express');
+const { obtenerPerfiles, guardarPerfilCompleto, eliminarPerfil } = require('../controllers/perfiles.controller.js');
+const { authenticateToken } = require('../middlewares/auth.middleware.js');
+const { requirePermission } = require('../middlewares/permissions.middleware.js');
 
 const router = express.Router();
 
@@ -8,4 +10,4 @@ router.post("/", guardarPerfilCompleto);
 router.put("/", guardarPerfilCompleto);  
 router.delete("/:id", eliminarPerfil); 
 
-export default router; 
+module.exports = router;

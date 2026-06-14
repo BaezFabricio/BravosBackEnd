@@ -128,7 +128,7 @@ export const obtenerPerfiles = async (req, res) => {
       if (permisosRows && permisosRows.length > 0) {
         permisosRows.forEach(row => {
           if (row && row.modulo && row.accion) {
-            // 🟢 BLINDAJE 2: Forzamos minúsculas y barremos espacios fantasmas al leer
+            
             const moduloKey = row.modulo.toLowerCase().trim();
             const accionKey = row.accion.toLowerCase().trim();
 

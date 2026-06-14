@@ -182,7 +182,35 @@ exports.login = asyncHandler(async (req, res) => {
  * GET /api/auth/me
  */
 exports.me = asyncHandler(async (req, res) => {
-  const [usuarios] = await db.query(obtenerUsuarioRegistrado, [req.user.idUsuario]);
+  // Capturamos el ID de forma segura desde req.user
+  const idUsuarioReal = req.user?.idUsuario;
+
+  if (!idUsuarioReal) {
+    return errorResponse(res, 'Token inválido o sesión expirada.', 'UNAUTHORIZED', 401);
+  }
+
+  // 🟢 SOLUCIÓN DIRECTA: Cableamos la query nativa de Sofía para evitar el archivo externo roto/undefined
+ const sqlUsuario = `
+    SELECT 
+      u.idUsuario, 
+      u.username, 
+      u.estado, 
+      u.idPerfil, 
+      p.fecha_registro AS miembroDesde, -- 👈 Mapea la fecha real desde la tabla persona
+      p.nombrecompleto, 
+      p.correo, 
+      p.dni, 
+      p.telefono,
+      perf.nombrePerfil,
+      av.url AS avatarUrl
+    FROM usuario u
+    INNER JOIN persona p ON u.idPersona = p.idPersona
+    LEFT JOIN perfil perf ON u.idPerfil = perf.idPerfil
+    LEFT JOIN usuario_avatar av ON u.idUsuario = av.idUsuario
+    WHERE u.idUsuario = ?
+  `;
+  // Ejecutamos la consulta pasándole la estructura limpia
+  const [usuarios] = await db.query(sqlUsuario, [idUsuarioReal]);
 
   if (!usuarios || usuarios.length === 0) {
     return errorResponse(res, 'Usuario no encontrado en el sistema.', 'USER_NOT_FOUND', 404);
@@ -191,40 +219,33 @@ exports.me = asyncHandler(async (req, res) => {
   const usuarioReal = usuarios[0];
   const idPerfilReal = usuarioReal.idPerfil;
 
-  // 1. 🟢 BUSCAMOS LOS PERMISOS REALES EN LA BASE DE DATOS
+  // 1. Buscamos los permisos granulares asociados a su perfil (ID 9 - Alumno)
   const sqlPermisos = `
-    SELECT 
-      m.nombreModulo, 
-      pm.permiso_alta, 
-      pm.permiso_baja, 
-      pm.permiso_modificacion, 
-      pm.permiso_consulta
-    FROM perfil_modulo pm
-    INNER JOIN modulo m ON pm.idModulo = m.idModulo
-    WHERE pm.idPerfil = ?
+    SELECT p.modulo, p.accion 
+    FROM perfilpermiso pp
+    INNER JOIN permiso p ON pp.idPermiso = p.idPermiso
+    WHERE pp.idPerfil = ?
   `;
-  const [permisosBrutos] = await db.query(sqlPermisos, [idPerfilReal]);
+  const [misPermisos] = await db.query(sqlPermisos, [idPerfilReal]);
 
-  // 2. 🟢 ARMAMOS EL ARRAY COMO LE GUSTA AL FRONTEND (ej: "usuarios:alta", "perfiles:ver")
+  // 2. 🟢 ARMAMOS EL ARRAY EN EL FORMATO "modulo:accion" QUE PIDEN TU LANDING Y PANELES
   const arrayPermisos = [];
   
-  // Si es el super admin (ID 1), podríamos forzarle todos los accesos, 
-  // pero si tu admin 2 es el ID 7, leemos lo que devolvió MySQL:
-  permisosBrutos.forEach(fila => {
-    // Normalizamos el nombre del módulo (ej: 'Usuarios' pasa a 'usuarios')
-    const modulo = fila.nombreModulo.toLowerCase(); 
-
-    // Si tiene un 1 (o true) en la BD, lo agregamos a la mochila de permisos del usuario
-    if (fila.permiso_alta) arrayPermisos.push(`${modulo}:alta`);
-    if (fila.permiso_baja) arrayPermisos.push(`${modulo}:baja`);
-    if (fila.permiso_modificacion) arrayPermisos.push(`${modulo}:modificacion`);
-    if (fila.permiso_consulta) {
-      arrayPermisos.push(`${modulo}:consulta`);
-      arrayPermisos.push(`${modulo}:ver`); // 👈 Agregamos "ver" por si el frontend usa esa palabra en lugar de "consulta"
+  misPermisos.forEach(per => {
+    const mod = per.modulo.toLowerCase().trim();
+    const acc = per.accion.toLowerCase().trim();
+    
+    // Inyectamos el formato básico (ej: "usuarios:alta")
+    arrayPermisos.push(`${mod}:${acc}`);
+    
+    // Si la acción es consulta, le sumamos el alias 'ver' por retrocompatibilidad con las vistas
+    if (acc === 'consulta' || acc === 'ver') {
+      if (!arrayPermisos.includes(`${mod}:consulta`)) arrayPermisos.push(`${mod}:consulta`);
+      if (!arrayPermisos.includes(`${mod}:ver`)) arrayPermisos.push(`${mod}:ver`);
     }
   });
 
-  // 3. MANDAMOS LA RESPUESTA COMPLETA
+  // 3. Devolvemos la respuesta estructurada al Frontend
   return successResponse(res, 'Sesión obtenida correctamente', {
     usuario: {
       idUsuario: usuarioReal.idUsuario,
@@ -232,13 +253,13 @@ exports.me = asyncHandler(async (req, res) => {
       correo: usuarioReal.correo,
       username: usuarioReal.username,
       idPerfil: idPerfilReal,
-      perfil: usuarioReal.nombrePerfil || 'cliente',
+      perfil: usuarioReal.nombrePerfil || 'Alumno',
       estado: usuarioReal.estado,
-      avatarUrl: usuarioReal.avatarUrl || null,
+      avatarUrl: usuarioReal.avatarUrl || null, // 🟢 Si está vacío en la DB manda null, evitando el aviso del string ("")
       dni: usuarioReal.dni || null,
       telefono: usuarioReal.telefono || null,
+      miembroDesde: usuarioReal.miembroDesde || null, // 🟢 Inyectamos la fecha para que no salga el guion vacío
     },
-    // 🚀 ¡AQUÍ VIAJA LA LLAVE MAESTRA!
     permisos: arrayPermisos, 
   });
 });

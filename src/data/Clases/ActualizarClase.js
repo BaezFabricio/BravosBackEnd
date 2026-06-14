@@ -1,14 +1,14 @@
 const actualizarClase = `
-  UPDATE clase
-  SET
+  UPDATE diaclase 
+  SET 
     nombreClase = ?,
     tipoClase = ?,
     cupoMaximo = ?,
     cupoDisponible = ?,
     estado = ?,
-    idGimnasio = ?,
+    idGimnasio = ?, -- Acá el controlador va a mandar NULL automáticamente
     idProfesor = ?
-  WHERE idClase = ?
+  WHERE idClase = ?;
 `;
 
 module.exports = actualizarClase;
