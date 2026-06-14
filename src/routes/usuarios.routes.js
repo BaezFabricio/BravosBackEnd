@@ -12,6 +12,37 @@ const { validateUpdateUser, handleValidationErrors } = require('../functions/val
 router.get('/', authenticateToken, requirePermission('Usuarios', 'consulta'), usuariosController.getAll);
 
 /**
+ * RUTAS DE ABONOS - Deben ir antes de la ruta con ':id' para evitar colisiones
+ */
+router.get(
+  '/:id/abonos',
+  authenticateToken,
+  allowSelfOrPermission('Usuarios', 'consulta'),
+  usuariosController.getAbonosByUsuario
+);
+
+router.post(
+  '/:id/abonos',
+  authenticateToken,
+  requirePermission('Usuarios', 'alta'),
+  usuariosController.createAbonoUsuario
+);
+
+router.put(
+  '/:id/abonos/:idCredito',
+  authenticateToken,
+  requirePermission('Usuarios', 'modificacion'),
+  usuariosController.updateAbonoUsuario
+);
+
+router.delete(
+  '/:id/abonos/:idCredito',
+  authenticateToken,
+  requirePermission('Usuarios', 'baja'),
+  usuariosController.cancelarAbonoUsuario
+);
+
+/**
  * GET /api/usuarios/:id
  * Obtiene un usuario específico
  */

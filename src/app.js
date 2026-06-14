@@ -34,26 +34,39 @@ if (envConfig.nodeEnv === 'development') {
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Compatibilidad con enlaces viejos de verificación
 app.get('/verificar-cuenta/:token', authController.verificarCuenta);
 app.get('/api/auth/verificar/:token', authController.verificarCuenta);
 
-// TEST DIRECTO (Para validar que el puerto responda)
+// Test directo
 app.get('/test-landing', (req, res) => {
-  res.json({ mensaje: "El backend sí responde en este puerto" });
+  res.json({
+    mensaje: 'El backend sí responde en este puerto',
+  });
 });
 
+<<<<<<< HEAD
 // INYECCIÓN DIRECTA DE LA LANDING:
 // Mantenemos tu require que extrae por defecto las rutas de la landing
 const landingRoutes = require('./routes/landing.routes.js');
 app.use('/landing', landingRoutes.default || landingRoutes);
+=======
+// Landing directa
+app.use('/landing', require('./routes/landing.routes.js'));
+>>>>>>> origin/RamaEnzoB
 
-// API routes globales (auth, usuarios, perfiles, modulos)
-app.use(`${envConfig.api.prefix}/v${envConfig.api.version}`, routes);
-app.use(`${envConfig.api.prefix}/vv1`, routes);
+// API routes globales
+const apiV1 = `${envConfig.api.prefix}/v${envConfig.api.version}`;
+const apiVV1 = `${envConfig.api.prefix}/vv1`;
+
+app.use(apiV1, routes);
+app.use(apiVV1, routes);
 
 app.use('/api/vv1/profesores', profesoresRouter);
 
