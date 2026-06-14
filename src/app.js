@@ -51,15 +51,13 @@ app.get('/test-landing', (req, res) => {
   });
 });
 
-<<<<<<< HEAD
-// INYECCIÓN DIRECTA DE LA LANDING:
-// Mantenemos tu require que extrae por defecto las rutas de la landing
+
 const landingRoutes = require('./routes/landing.routes.js');
 app.use('/landing', landingRoutes.default || landingRoutes);
-=======
-// Landing directa
-app.use('/landing', require('./routes/landing.routes.js'));
->>>>>>> origin/RamaEnzoB
+
+// API routes globales
+const apiV1 = `${envConfig.api.prefix}/v${envConfig.api.version}`;
+
 
 // API routes globales
 const apiV1 = `${envConfig.api.prefix}/v${envConfig.api.version}`;
