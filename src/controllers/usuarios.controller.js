@@ -33,10 +33,11 @@ const sincronizarFichaProfesor = async (connection, idPersona, idPerfil) => {
     const sqlInsertProfesor = `
       INSERT IGNORE INTO profesor (especialidad, idPersona) 
       VALUES (?, ?)
-    `;sz
+    `;
     await connection.query(sqlInsertProfesor, ['Crossfit / General', idPersona]);
   }
 };
+
 /**
  * GET /api/usuarios
  * Obtiene lista de todos los usuarios con su perfil real calculado
@@ -47,15 +48,25 @@ exports.getAll = asyncHandler(async (req, res) => {
       u.idUsuario,
       u.username,
       u.idPerfil,
-      u.estado,
+      u.estado, -- Mantiene el estado del usuario base (Activo/Suspendido)
       p.nombrecompleto,
       p.dni,
       p.correo,
       p.telefono,
-      perf.nombrePerfil AS nombrePerfil
+      perf.nombrePerfil AS nombrePerfil,
+      -- 🟢 CRÉDITOS REALES: Suma de turnos disponibles activos
+      IFNULL(SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() THEN c.creditosCisponibles ELSE 0 END), 0) AS creditos,
+      -- 🟢 MEMBRESÍA DINÁMICA: Si tiene créditos disponibles y no vencieron, está ACTIVA. Sino, VENCIDA.
+      CASE 
+        WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'activa'
+        ELSE 'vencida'
+      END AS membresia
     FROM usuario u
     INNER JOIN persona p ON u.idPersona = p.idPersona
     LEFT JOIN perfil perf ON u.idPerfil = perf.idPerfil
+    LEFT JOIN alumno a ON p.idPersona = a.idPersona
+    LEFT JOIN credito c ON a.idAlumno = c.idAlumno
+    GROUP BY u.idUsuario, p.idPersona, perf.idPerfil, a.idAlumno
   `;
 
   const [rows] = await db.query(sql);
@@ -68,13 +79,59 @@ exports.getAll = asyncHandler(async (req, res) => {
  */
 exports.getById = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const [usuarios] = await db.query(obtenerUsuarioPorId, [id]);
+
+
+  const userSql = `
+    SELECT 
+      u.idUsuario,
+      u.username,
+      u.estado,
+      u.idPersona,
+      p.nombrecompleto AS nombre,        -- 🟢 Mapea directo a user.nombre
+      p.dni AS dni,                     -- 🟢 Mapea directo a user.dni
+      p.correo AS email,                 -- 🟢 Mapea directo a user.email
+      p.telefono AS telefono,           -- 🟢 Mapea directo a user.telefono
+      p.fecha_registro AS fechaRegistro, -- 🟢 Usa tu columna real con guión bajo
+      perf.nombrePerfil AS perfil        -- 🟢 Mapea directo a user.perfil
+    FROM usuario u
+    INNER JOIN persona p ON u.idPersona = p.idpersona -- 💡 idpersona va todo en minúsculas en tu DB
+    LEFT JOIN perfil perf ON u.idPerfil = perf.idPerfil
+    WHERE u.idUsuario = ?
+  `;
+
+  const [usuarios] = await db.query(userSql, [id]);
 
   if (usuarios.length === 0) {
     return errorResponse(res, 'Usuario no encontrado', 'USER_NOT_FOUND', 404);
   }
 
-  return successResponse(res, 'Usuario obtenido correctamente', usuarios[0]);
+  const usuarioBase = usuarios[0];
+
+ 
+  const metricsSql = `
+    SELECT 
+      IFNULL(SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() THEN c.creditosCisponibles ELSE 0 END), 0) AS creditosCalculados,
+      CASE 
+        WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'activa'
+        ELSE 'vencida'
+      END AS membresiaCalculada
+    FROM alumno a
+    LEFT JOIN credito c ON a.idAlumno = c.idAlumno
+    WHERE a.idPersona = ?
+  `;
+
+  const [metricsRows] = await db.query(metricsSql, [usuarioBase.idPersona]);
+  const metricas = metricsRows[0] || { creditosCalculados: 0, membresiaCalculada: 'vencida' };
+
+  
+  const usuarioFinal = {
+    ...usuarioBase,
+    creditos: metricas.creditosCalculados,
+    membresia: metricas.membresiaCalculada  
+  };
+  console.log("=== PAQUETE MANDADO AL FRONTEND ===", JSON.stringify(usuarioFinal, null, 2));
+
+  return successResponse(res, 'Usuario obtenido correctamente', usuarioFinal);
 });
 
 /**
@@ -264,18 +321,11 @@ exports.updateAvatar = asyncHandler(async (req, res) => {
   });
 });
 
-// ==========================================
-// 🟢 INTEGRACIÓN DE FUNCIONES DE RAMAENZO
-// ==========================================
-
 exports.getAbonosByUsuario = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const [alumnos] = await db.query(
-    `SELECT a.idAlumno
-     FROM alumno a
-     INNER JOIN usuario u ON a.idPersona = u.idPersona
-     WHERE u.idUsuario = ?`,
+    `SELECT a.idAlumno FROM alumno a INNER JOIN usuario u ON a.idPersona = u.idPersona WHERE u.idUsuario = ?`,
     [id]
   );
 
@@ -285,6 +335,7 @@ exports.getAbonosByUsuario = asyncHandler(async (req, res) => {
 
   const idAlumno = alumnos[0].idAlumno;
 
+  // 🔍 Hacemos el JOIN para traer de la base de datos el nombre de la persona que operó
   const [abonos] = await db.query(
     `SELECT 
       c.idCredito AS id,
@@ -295,11 +346,14 @@ exports.getAbonosByUsuario = asyncHandler(async (req, res) => {
       c.totalCreditos AS turnos,
       0 AS ajuste,
       c.creditosUtilizados AS usados,
-      c.creditosDisponibles AS disponibles,
-      c.estado
+      c.creditosCisponibles AS disponibles,
+      c.estado,
+      pPers.nombrecompleto AS operadorReal
      FROM credito c
      INNER JOIN pago p ON c.idPago = p.idPago
      INNER JOIN plan pl ON p.idPlan = pl.idPlan
+     LEFT JOIN usuario pUsu ON p.idUsuarioOperador = pUsu.idUsuario
+     LEFT JOIN persona pPers ON pUsu.idPersona = pPers.idPersona
      WHERE c.idAlumno = ?
      ORDER BY c.fechaInicio DESC`,
     [idAlumno]
@@ -309,7 +363,7 @@ exports.getAbonosByUsuario = asyncHandler(async (req, res) => {
 });
 
 exports.createAbonoUsuario = asyncHandler(async (req, res) => {
-  const { id } = req.params;
+  const { id } = req.params; // idUsuario del alumno
 
   const {
     tipoAbono,
@@ -317,8 +371,10 @@ exports.createAbonoUsuario = asyncHandler(async (req, res) => {
     fechaVencimiento,
     metodoPago,
     importe,
+    idUsuarioOperador 
   } = req.body;
 
+  // 1. Buscamos si el usuario ya tiene una ficha en la tabla alumno
   const [alumnos] = await db.query(
     `SELECT a.idAlumno
      FROM alumno a
@@ -327,12 +383,33 @@ exports.createAbonoUsuario = asyncHandler(async (req, res) => {
     [id]
   );
 
+  let idAlumno;
+
+  // Si el usuario no es alumno, lo creamos con la fecha de hoy
   if (alumnos.length === 0) {
-    return errorResponse(res, 'El usuario no tiene alumno asociado', 'ALUMNO_NOT_FOUND', 404);
+    const [userRows] = await db.query(
+      `SELECT idPersona FROM usuario WHERE idUsuario = ?`,
+      [id]
+    );
+
+    if (userRows.length === 0) {
+      return errorResponse(res, 'Usuario base no encontrado', 'USER_NOT_FOUND', 404);
+    }
+
+    const idPersona = userRows[0].idPersona;
+
+    const [nuevoAlumnoResult] = await db.query(
+      `INSERT INTO alumno (fechaAlta, estado, idPersona) 
+       VALUES (CURDATE(), 'activo', ?)`,
+      [idPersona]
+    );
+
+    idAlumno = nuevoAlumnoResult.insertId;
+  } else {
+    idAlumno = alumnos[0].idAlumno;
   }
 
-  const idAlumno = alumnos[0].idAlumno;
-
+  // 2. Buscamos el plan
   const [planes] = await db.query(
     `SELECT idPlan, nombre, precio, cantidadCreditos
      FROM plan
@@ -345,43 +422,71 @@ exports.createAbonoUsuario = asyncHandler(async (req, res) => {
   }
 
   const plan = planes[0];
-
   const montoFinal = importe || plan.precio;
-  const fechaPago = new Date();
 
+  const hoyLocal = new Date();
+  const offset = hoyLocal.getTimezoneOffset() * 60000;
+  const fechaPagoReal = new Date(hoyLocal.getTime() - offset).toISOString().split('T')[0];
+  
+  const inicioReal = fechaInicio ? fechaInicio : fechaPagoReal;
+  
+  let vencimientoReal;
+  if (fechaVencimiento) {
+    vencimientoReal = fechaVencimiento;
+  } else {
+    const auxFecha = new Date(inicioReal + 'T12:00:00');
+    auxFecha.setDate(auxFecha.getDate() + 30);
+    vencimientoReal = auxFecha.toISOString().split('T')[0];
+  }
+
+  // 🔍 BUSQUEDA DINÁMICA DEL OPERADOR REAL:
+  // Obtenemos el nombre completo desde la tabla persona cruzando con el idUsuario que está operando
+  const [operadorRows] = await db.query(
+    `SELECT p.nombrecompleto 
+     FROM usuario u
+     INNER JOIN persona p ON u.idPersona = p.idPersona
+     WHERE u.idUsuario = ?`,
+    [idUsuarioOperador || 1] // Si no viene, toma el ID 1 por defecto
+  );
+  const nombreOperadorReal = operadorRows.length > 0 ? operadorRows[0].nombrecompleto : "Sistema";
+
+  // 3. Insertamos el Registro de Pago guardando el nombre del operador real
   const [pagoResult] = await db.query(
     `INSERT INTO pago
-     (fechaPago, importe, formaPago, estadoPago, fechaVencimiento, idAlumno, idPlan)
-     VALUES (?, ?, ?, 'confirmado', ?, ?, ?)`,
+     (fechaPago, importe, formaPago, estadoPago, fechaVencimiento, idAlumno, idPlan, idUsuarioOperador)
+     VALUES (?, ?, ?, 'confirmado', ?, ?, ?, ?)`,
     [
-      fechaPago,
+      fechaPagoReal,
       montoFinal,
       metodoPago || 'Efectivo',
-      fechaVencimiento,
+      vencimientoReal,
       idAlumno,
       plan.idPlan,
+      idUsuarioOperador || null 
     ]
   );
 
+  // 4. Insertamos los Créditos del Abono
   await db.query(
     `INSERT INTO credito
-     (totalCreditos, creditosDisponibles, creditosUtilizados, fechaInicio, fechaVencimiento, estado, idAlumno, idPago)
+     (totalCreditos, creditosCisponibles, creditosUtilizados, fechaInicio, fechaVencimiento, estado, idAlumno, idPago)
      VALUES (?, ?, 0, ?, ?, 'ACTIVO', ?, ?)`,
     [
       plan.cantidadCreditos,
       plan.cantidadCreditos,
-      fechaInicio,
-      fechaVencimiento,
+      inicioReal,
+      vencimientoReal,
       idAlumno,
       pagoResult.insertId,
     ]
   );
 
-  return successResponse(res, 'Abono cargado correctamente', null, 201);
+  return successResponse(res, 'Abono cargado y Alumno inicializado correctamente', null, 201);
 });
 
 exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
-  const { idCredito } = req.params;
+  // 🚀 Capturamos el ID del abono desde cualquier variable posible de la ruta de Express
+  const idCreditoReal = req.params.idCredito || req.params.id || req.params.idAbono;
 
   const {
     fechaInicio,
@@ -391,28 +496,42 @@ exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
     estado,
   } = req.body;
 
+  // Forzamos que el estado vaya en Mayúsculas limpias ('ACTIVO', 'CANCELADO') como tus inserts nativos
+  const estadoFormateado = String(estado || 'ACTIVO').toUpperCase().trim();
+
   const totalCreditos = Number(turnos) + Number(ajuste || 0);
 
+  // 1. Buscamos el estado actual del abono antes de sobreescribir
   const [creditoExistente] = await db.query(
-    `SELECT idCredito, creditosUtilizados
+    `SELECT idCredito, creditosUtilizados, totalCreditos, estado
      FROM credito
      WHERE idCredito = ?`,
-    [idCredito]
+    [idCreditoReal]
   );
 
   if (creditoExistente.length === 0) {
-    return errorResponse(res, 'Abono no encontrado', 'ABONO_NOT_FOUND', 404);
+    console.error(`❌ ERROR: No se encontró el abono con ID: ${idCreditoReal}`);
+    return errorResponse(res, 'Abono no encontrado en el sistema', 'ABONO_NOT_FOUND', 404);
   }
 
   const usados = creditoExistente[0].creditosUtilizados || 0;
-  const disponibles = totalCreditos - usados;
+  
+  // 🚀 RECALCULO DE DISPONIBLES: 
+  // Si pasa de CANCELADO a ACTIVO, recupera sus turnos totales menos los que ya gastó el alumno
+  let disponibles = totalCreditos - usados;
+  
+  // Si explícitamente se lo deja en CANCELADO, los disponibles mueren en 0
+  if (estadoFormateado === 'CANCELADO') {
+    disponibles = 0;
+  }
 
+  // 2. Ejecutamos el UPDATE con los datos limpios y homologados
   await db.query(
     `UPDATE credito
      SET fechaInicio = ?,
          fechaVencimiento = ?,
          totalCreditos = ?,
-         creditosDisponibles = ?,
+         creditosCisponibles = ?, 
          estado = ?
      WHERE idCredito = ?`,
     [
@@ -420,12 +539,12 @@ exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
       fechaVencimiento,
       totalCreditos,
       disponibles,
-      estado,
-      idCredito,
+      estadoFormateado, // 'ACTIVO' o 'CANCELADO'
+      idCreditoReal,
     ]
   );
 
-  return successResponse(res, 'Abono modificado correctamente');
+  return successResponse(res, 'Abono modificado correctamente en la base de datos');
 });
 
 exports.cancelarAbonoUsuario = asyncHandler(async (req, res) => {
@@ -440,10 +559,11 @@ exports.cancelarAbonoUsuario = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Abono no encontrado', 'ABONO_NOT_FOUND', 404);
   }
 
+  // 🟢 CORREGIDO: Usando 'creditosCisponibles' para evitar el error ER_BAD_FIELD_ERROR
   await db.query(
     `UPDATE credito
      SET estado = 'CANCELADO',
-         creditosDisponibles = 0
+         creditosCisponibles = 0
      WHERE idCredito = ?`,
     [idCredito]
   );
@@ -451,5 +571,5 @@ exports.cancelarAbonoUsuario = asyncHandler(async (req, res) => {
   return successResponse(res, 'Abono cancelado correctamente');
 });
 
-// 🟢 EXPORTACIÓN CENTRALIZADA: Exporta automáticamente todas las funciones declaradas arriba como 'exports.nombre'
+// Exportación centralizada limpia
 module.exports = exports;

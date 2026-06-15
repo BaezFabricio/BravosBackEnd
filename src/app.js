@@ -58,9 +58,6 @@ app.use('/landing', landingRoutes.default || landingRoutes);
 // API routes globales
 const apiV1 = `${envConfig.api.prefix}/v${envConfig.api.version}`;
 
-
-// API routes globales
-const apiV1 = `${envConfig.api.prefix}/v${envConfig.api.version}`;
 const apiVV1 = `${envConfig.api.prefix}/vv1`;
 
 app.use(apiV1, routes);

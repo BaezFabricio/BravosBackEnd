@@ -31,7 +31,7 @@ router.post(
 router.put(
   '/:id/abonos/:idCredito',
   authenticateToken,
-  requirePermission('Usuarios', 'modificacion'),
+  allowSelfOrPermission('Usuarios', 'modificacion'), 
   usuariosController.updateAbonoUsuario
 );
 

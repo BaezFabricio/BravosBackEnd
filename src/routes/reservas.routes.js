@@ -14,4 +14,6 @@ router.get('/mis-reservas', authenticateToken, requirePermission('Reservas', 'co
 
 router.patch('/:id/cancelar', authenticateToken, requirePermission('Reservas', 'modificacion'), reservasController.cancelarReserva);
 
+router.get('/mis-creditos-movimientos', authenticateToken, reservasController.obtenerMisCreditosYMovimientos);
+
 module.exports = router;
