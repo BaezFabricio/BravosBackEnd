@@ -4,6 +4,7 @@ const { corsMiddleware } = require('./config/cors');
 
 const routes = require('./routes/index.js');
 const profesoresRouter = require('./routes/profesores.routes');
+const dashboardRoutes = require('./routes/dashboard.routes');
 
 const { errorHandler, notFoundHandler } = require('./middlewares/error.middleware');
 const authController = require('./controllers/auth.controller');
@@ -64,6 +65,8 @@ app.use(apiV1, routes);
 app.use(apiVV1, routes);
 
 app.use('/api/vv1/profesores', profesoresRouter);
+
+app.use('/api/vv1/dashboard', dashboardRoutes);
 
 
 // ========== MANEJO DE ERRORES ==========

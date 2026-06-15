@@ -6,7 +6,7 @@ const { authenticateToken } = require('../middlewares/auth.middleware');
 const { requirePermission } = require('../middlewares/permissions.middleware');
 
 
-router.get('/disponibles', authenticateToken, requirePermission('Clases', 'consulta'), clasesController.getClasesDisponibles);
+router.get('/disponibles', clasesController.getClasesDisponibles);
 
 // Rutas existentes corregidas y protegidas:
 router.get('/', authenticateToken, requirePermission('Clases', 'consulta'), clasesController.getAll);
