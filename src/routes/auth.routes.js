@@ -28,6 +28,12 @@ router.post('/recuperar-contrasena', authController.recuperarContrasena);
  */
 router.get('/me', authenticateToken, authController.me);
 
+/**
+ * POST /api/auth/cambiar-contraseña
+ * Permite a un usuario autenticado cambiar su contraseña
+ */
+router.post('/cambiar-contrasena', authenticateToken, authController.cambiarContrasena);
+
 router.get('/verificar/:token', authController.verificarCuenta);
 
 router.post('/reenviar-verificacion', authController.reenviarVerificacion);

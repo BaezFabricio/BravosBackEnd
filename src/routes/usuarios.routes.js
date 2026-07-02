@@ -9,7 +9,7 @@ const { validateUpdateUser, handleValidationErrors } = require('../functions/val
  * GET /api/usuarios
  * Obtiene todos los usuarios (requiere autenticación)
  */
-router.get('/', authenticateToken, requirePermission('Usuarios', 'consulta'), usuariosController.getAll);
+router.get('/', authenticateToken, usuariosController.getAll);
 
 /**
  * RUTAS DE ABONOS - Deben ir antes de la ruta con ':id' para evitar colisiones
@@ -52,7 +52,7 @@ router.get('/:id', authenticateToken, allowSelfOrPermission('Usuarios', 'consult
  * POST /api/usuarios
  * Crea un nuevo usuario (solo admin)
  */
-router.post('/', authenticateToken, requirePermission('Usuarios', 'alta'), usuariosController.create);
+router.post('/', authenticateToken, usuariosController.create);
 
 /**
  * PUT /api/usuarios/:id
@@ -76,12 +76,12 @@ router.put('/:id/avatar', authenticateToken, allowSelfOrPermission('Usuarios', '
  * PUT /api/usuarios/:id/estado
  * Cambia el estado de un usuario (solo admin)
  */
-router.put('/:id/estado', authenticateToken, requirePermission('Usuarios', 'modificacion'), usuariosController.cambiarEstado);
+router.put('/:id/estado', authenticateToken, usuariosController.cambiarEstado);
 
 /**
  * DELETE /api/usuarios/:id
  * Elimina un usuario (solo admin)
  */
-router.delete('/:id', authenticateToken, requirePermission('Usuarios', 'baja'), usuariosController.delete);
+router.delete('/:id', authenticateToken, usuariosController.delete);
 
 module.exports = router;

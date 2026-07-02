@@ -412,3 +412,65 @@ exports.recuperarContrasena = asyncHandler(async (req, res) => {
 
   return errorResponse(res, 'Acción inválida', 'INVALID_ACTION', 400);
 });
+
+/**
+ * POST /api/auth/cambiar-contraseña
+ * Permite a un usuario autenticado cambiar su contraseña
+ */
+exports.cambiarContrasena = asyncHandler(async (req, res) => {
+  const { contrasenaActual, contrasenaNueva } = req.body;
+  const idUsuarioReal = req.user?.idUsuario;
+
+  // Validaciones
+  if (!idUsuarioReal) {
+    return errorResponse(res, 'Token inválido o sesión expirada.', 'UNAUTHORIZED', 401);
+  }
+
+  if (!contrasenaActual || !contrasenaNueva) {
+    return errorResponse(res, 'La contraseña actual y la nueva son requeridas', 'MISSING_PASSWORD', 400);
+  }
+
+  if (contrasenaNueva.length < 6) {
+    return errorResponse(res, 'La nueva contraseña debe tener al menos 6 caracteres', 'PASSWORD_TOO_SHORT', 400);
+  }
+
+  // Obtener el usuario y su contraseña actual
+  const [usuarios] = await db.query('SELECT u.contrasena FROM usuario u WHERE u.idUsuario = ?', [idUsuarioReal]);
+
+  if (!usuarios || usuarios.length === 0) {
+    return errorResponse(res, 'Usuario no encontrado', 'USER_NOT_FOUND', 404);
+  }
+
+  const usuario = usuarios[0];
+
+  // Verificar que la contraseña actual es correcta
+  const esValida = await comparePassword(contrasenaActual, usuario.contrasena);
+  if (!esValida) {
+    return errorResponse(res, 'Ruta no encontrada', 'INVALID_PASSWORD', 401);
+  }
+
+  // Hashear la nueva contraseña
+  const contrasenaNuevaHasheada = await hashPassword(contrasenaNueva);
+
+  // Actualizar la contraseña
+  await db.query('UPDATE usuario SET contrasena = ? WHERE idUsuario = ?', [contrasenaNuevaHasheada, idUsuarioReal]);
+
+  return successResponse(res, 'Contraseña cambiada exitosamente', null, 200);
+
+  exports.getClasesDelProfesor = async (req, res) =>{
+    const { idProfesor } = req.params;
+    try {
+        // Asumiendo que usas tu configuración de db.js
+        const [clases] = await db.query(
+            `SELECT c.idClase, c.nombreClase, h.dia, h.horaInicio, h.horaFin 
+             FROM clase c 
+             JOIN horarioclase h ON c.idClase = h.idClase 
+             WHERE c.idProfesor = ?`,
+            [idProfesor]
+        );
+        res.status(200).json(clases);
+    } catch (error) {
+        res.status(500).json({ message: "Error al obtener clases del profesor", error });
+    }
+};
+});

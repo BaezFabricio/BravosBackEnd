@@ -94,6 +94,17 @@ export const deleteModulo = async (req, res) => {
 export const obtenerPerfiles = async (req, res) => {
   try {
     const [perfilesRows] = await connection.query("SELECT * FROM perfil");
+    const [usuariosPorPerfilRows] = await connection.query(
+      `SELECT u.idPerfil, COUNT(*) AS usuarios
+       FROM usuario u
+       GROUP BY u.idPerfil`
+    );
+
+    const usuariosPorPerfilMap = {}
+    usuariosPorPerfilRows.forEach((row) => {
+      usuariosPorPerfilMap[row.idPerfil] = row.usuarios
+    })
+
     const perfilesCompletos = [];
 
     for (const perfil of perfilesRows) {
@@ -144,7 +155,7 @@ export const obtenerPerfiles = async (req, res) => {
         idPerfil: perfil.idPerfil,         
         nombrePerfil: perfil.nombrePerfil, 
         descripcion: perfil.descripcion,   
-        usuarios: 0,
+        usuarios: usuariosPorPerfilMap[perfil.idPerfil] || 0,
         modulos: modulosEstructura
       });
     }
