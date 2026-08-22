@@ -1,0 +1,24 @@
+{
+  "fecha": "2026-07-03T00:46:56.626Z",
+  "motivo": "Backup previo a restaurar datos operativos desde bravosdata.sql",
+  "alumno": [],
+  "profesor": [],
+  "diaclase": [],
+  "horarioclase": [],
+  "plan": [],
+  "pago": [],
+  "credito": [],
+  "reserva": [],
+  "usuario_avatar": [
+    {
+      "idUsuario": 5,
+      "url": "https://res.cloudinary.com/dlxibypyj/image/upload/v1779943052/bravos_avatars/rm6qghuaqmyrwudrfdq6.jpg",
+      "updated_at": "2026-05-28T04:37:33.000Z"
+    },
+    {
+      "idUsuario": 7,
+      "url": "https://res.cloudinary.com/dlxibypyj/image/upload/v1779943518/bravos_avatars/g5rcjhmpm65neglaxsyf.jpg",
+      "updated_at": "2026-05-28T04:45:19.000Z"
+    }
+  ]
+}

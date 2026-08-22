@@ -1,0 +1,36 @@
+{
+  "fecha": "2026-07-03T01:27:25.822Z",
+  "motivo": "Backup previo a eliminar profesores duplicados sin uso (idProfesor 3 y 6)",
+  "profesor": [
+    {
+      "idProfesor": 1,
+      "especialidad": "Crossfit Coach",
+      "idPersona": 35
+    },
+    {
+      "idProfesor": 2,
+      "especialidad": "Crossfit / General",
+      "idPersona": 10
+    },
+    {
+      "idProfesor": 3,
+      "especialidad": "Crossfit / General",
+      "idPersona": 35
+    },
+    {
+      "idProfesor": 4,
+      "especialidad": "Crossfit / General",
+      "idPersona": 28
+    },
+    {
+      "idProfesor": 5,
+      "especialidad": "Crossfit / General",
+      "idPersona": 8
+    },
+    {
+      "idProfesor": 6,
+      "especialidad": "Crossfit / General",
+      "idPersona": 8
+    }
+  ]
+}

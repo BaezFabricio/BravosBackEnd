@@ -1,13 +1,14 @@
 // Contenido de ObtenerDatosLogin.js
 const obtenerDatosLogin = `
-  SELECT 
-    u.idUsuario, 
-    u.username, 
-    u.contrasena,    
-    u.estado, 
-    u.correo_verificado, 
+  SELECT
+    u.idUsuario,
+    u.username,
+    u.contrasena,
+    u.estado,
+    u.correo_verificado,
     u.idPerfil,
-    per.nombrePerfil, 
+    u.idPersona,
+    per.nombrePerfil,
     p.nombrecompleto,
     p.correo,
     ua.url AS avatarUrl

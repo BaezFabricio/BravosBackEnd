@@ -1,0 +1,45 @@
+{
+  "fecha": "2026-07-03T00:15:31.618Z",
+  "motivo": "Backup previo a restaurar permiso/perfil/perfilpermiso desde bravosdata.sql (tablas vacías en la BD real)",
+  "permiso": [],
+  "perfil": [
+    {
+      "idPerfil": 1,
+      "nombrePerfil": "admin",
+      "descripcion": "Administrador General del Sistema"
+    }
+  ],
+  "perfilpermiso": [],
+  "usuario_idPerfil": [
+    {
+      "idUsuario": 5,
+      "username": "bravosbox1@gmail.com",
+      "idPerfil": 1
+    },
+    {
+      "idUsuario": 7,
+      "username": "fabriciobaezz11@gmail.com",
+      "idPerfil": null
+    },
+    {
+      "idUsuario": 9,
+      "username": "cacaman1126@gmail.com",
+      "idPerfil": null
+    },
+    {
+      "idUsuario": 10,
+      "username": "lujansofia13@gmail.com",
+      "idPerfil": null
+    },
+    {
+      "idUsuario": 17,
+      "username": "angelajuanavillalba.14@gmail.com",
+      "idPerfil": null
+    },
+    {
+      "idUsuario": 24,
+      "username": "videospolitica78@gmail.com",
+      "idPerfil": null
+    }
+  ]
+}

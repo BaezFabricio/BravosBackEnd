@@ -4,22 +4,49 @@ const { successResponse } = require('../utils/response');
 
 exports.getMetrics = asyncHandler(async (req, res) => {
   try {
-    // 1. Tarjeta: Total de usuarios registrados (desde tu tabla de logins o personas)
-    const [totalUsersRows] = await db.query('SELECT COUNT(*) AS total FROM persona');
+    // 1. Tarjeta: Total de alumnos registrados en el gimnasio
+    const [totalUsersRows] = await db.query('SELECT COUNT(*) AS total FROM alumno');
     const totalUsuarios = totalUsersRows[0]?.total || 0;
 
-    // 2. Tarjeta: Usuarios Activos (Simulado temporalmente en base a tus clases activas hasta que uses tu tabla de pases)
-    const [activeUsersRows] = await db.query("SELECT COUNT(*) AS activos FROM persona");
+    // 2. Tarjeta: Alumnos con estado activo
+    const [activeUsersRows] = await db.query("SELECT COUNT(*) AS activos FROM alumno WHERE estado = 'activo'");
     const usuariosActivos = activeUsersRows[0]?.activos || 0;
 
-    // 3. Tarjeta: Alumnos Suspendidos
-    const suspendidosCount = 0; 
+    // 3 y 5. Alumnos suspendidos por falta de pago: no tienen ningún crédito vigente
+    // (activo, con saldo disponible y sin vencer) y no están dados de baja manualmente.
+    const [suspendedListRows] = await db.query(`
+      SELECT
+        p.dni,
+        p.nombrecompleto AS name,
+        p.correo AS email,
+        COALESCE(DATEDIFF(CURDATE(), ultimoCredito.fechaVencimiento), 0) AS daysOverdue
+      FROM alumno a
+      INNER JOIN persona p ON a.idPersona = p.idpersona
+      LEFT JOIN (
+        SELECT c1.idAlumno, MAX(c1.fechaVencimiento) AS fechaVencimiento
+        FROM credito c1
+        GROUP BY c1.idAlumno
+      ) ultimoCredito ON ultimoCredito.idAlumno = a.idAlumno
+      WHERE a.estado != 'inactivo'
+        AND NOT EXISTS (
+          SELECT 1 FROM credito c2
+          WHERE c2.idAlumno = a.idAlumno
+            AND c2.estado = 'ACTIVO'
+            AND c2.creditosCisponibles > 0
+            AND c2.fechaVencimiento >= CURDATE()
+        )
+      ORDER BY daysOverdue DESC
+    `);
+    const suspendidosCount = suspendedListRows.length;
 
-    // 4. Tarjeta: Membresías por vencer en los próximos 7 días
-    const membresiasPorVencer = 0;
-
-    // 5. Tabla Izquierda: Listado Detallado de Alumnos Suspendidos (Devuelve vacío controlado por ahora)
-    const suspendedListRows = [];
+    // 4. Tarjeta: Membresías (créditos activos) que vencen en los próximos 7 días
+    const [porVencerRows] = await db.query(`
+      SELECT COUNT(DISTINCT idAlumno) AS total
+      FROM credito
+      WHERE estado = 'ACTIVO'
+        AND fechaVencimiento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+    `);
+    const membresiasPorVencer = porVencerRows[0]?.total || 0;
 
     // 6. Tabla Derecha: Clases del Día de Hoy con Ocupación Real (¡Esta mapea con tus capturas de MySQL!)
     const numeroDiaJs = new Date().getDay();

@@ -12,6 +12,38 @@ const queryObtenerClasesAlumnos = require('../data/Clases/ObtenerClasesAlumnos')
 
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
+const { syncEjercicios } = require('./rutinas.controller');
+
+/**
+ * Crea o actualiza la rutina vinculada a una clase (categoría, nivel, descripción
+ * y ejercicios con video). Si `rutina` viene vacío/ausente no hace nada.
+ */
+async function guardarRutinaDeClase(idClase, idProfesor, nombreClase, rutina) {
+  if (!rutina) return;
+
+  const { categoria, nivel, descripcion, ejercicios } = rutina;
+  const tieneContenido = categoria || nivel || descripcion || (Array.isArray(ejercicios) && ejercicios.length > 0);
+  if (!tieneContenido) return;
+
+  const [existente] = await db.query('SELECT idRutina FROM rutina WHERE idClase = ?', [idClase]);
+
+  let idRutina;
+  if (existente.length > 0) {
+    idRutina = existente[0].idRutina;
+    await db.query(
+      'UPDATE rutina SET nombre = ?, descripcion = ?, nivel = ?, categoria = ?, idProfesor = ? WHERE idRutina = ?',
+      [nombreClase, descripcion || null, nivel || null, categoria || null, idProfesor, idRutina]
+    );
+  } else {
+    const [result] = await db.query(
+      'INSERT INTO rutina (nombre, descripcion, nivel, categoria, idProfesor, idClase) VALUES (?, ?, ?, ?, ?, ?)',
+      [nombreClase, descripcion || null, nivel || null, categoria || null, idProfesor, idClase]
+    );
+    idRutina = result.insertId;
+  }
+
+  await syncEjercicios(idRutina, ejercicios);
+}
 
 /**
  * GET /api/clases
@@ -32,6 +64,29 @@ exports.getClasesDisponibles = asyncHandler(async (req, res) => {
 });
 
 /**
+ * GET /api/clases/turnos/resumen
+ * Agrupa los turnos realmente usados en horarioclase (no hay tabla maestra de turnos,
+ * "turno" es un texto libre por horario) junto con su rango horario real y cuántos
+ * horarios de clase lo usan.
+ */
+exports.getTurnosResumen = asyncHandler(async (req, res) => {
+  const [turnos] = await db.query(`
+    SELECT
+      h.turno AS nombre,
+      MIN(h.horaInicio) AS horaInicio,
+      MAX(h.horaFin) AS horaFin,
+      COUNT(*) AS cantidadHorarios,
+      COUNT(DISTINCT h.idClase) AS cantidadClases
+    FROM horarioclase h
+    WHERE h.turno IS NOT NULL AND h.turno != ''
+    GROUP BY h.turno
+    ORDER BY horaInicio ASC
+  `);
+
+  return successResponse(res, 'Turnos obtenidos correctamente', turnos);
+});
+
+/**
  * GET /api/clases/:id
  * Obtiene una clase por ID
  */
@@ -43,7 +98,18 @@ exports.getById = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Clase no encontrada', 404);
   }
 
-  return successResponse(res, 'Clase obtuvo correctamente', clase[0]);
+  const [rutinaRows] = await db.query('SELECT * FROM rutina WHERE idClase = ?', [id]);
+  let rutina = null;
+
+  if (rutinaRows.length > 0) {
+    const [ejercicios] = await db.query(
+      'SELECT idEjercicio, nombre, videoUrl, orden FROM ejercicio WHERE idRutina = ? ORDER BY orden ASC',
+      [rutinaRows[0].idRutina]
+    );
+    rutina = { ...rutinaRows[0], ejercicios };
+  }
+
+  return successResponse(res, 'Clase obtuvo correctamente', { ...clase[0], rutina });
 });
 
 /**
@@ -58,10 +124,12 @@ exports.insert = asyncHandler(async (req, res) => {
     cupoDisponible,
     estado,
     idProfesor,
+    idPlan,
     diasSemana,
     horaInicio,
     horaFin,
-    turno
+    turno,
+    rutina
   } = req.body;
 
   if (!nombreClase || !tipoClase || !cupoMaximo || !cupoDisponible || !estado || !idProfesor) {
@@ -82,8 +150,9 @@ exports.insert = asyncHandler(async (req, res) => {
     cupoMaximo,
     cupoDisponible,
     estado,
-    null, 
-    idProfesor
+    null,
+    idProfesor,
+    idPlan || null
   ]);
 
   const idClase = result.insertId;
@@ -97,6 +166,8 @@ exports.insert = asyncHandler(async (req, res) => {
       idClase
     ]);
   }
+
+  await guardarRutinaDeClase(idClase, idProfesor, nombreClase, rutina);
 
   return successResponse(res, 'Clase creada correctamente con sus horarios', {
     idClase,
@@ -129,10 +200,12 @@ exports.update = asyncHandler(async (req, res) => {
     cupoDisponible,
     estado,
     idProfesor,
+    idPlan,
     diasSemana,
     horaInicio,
     horaFin,
-    turno
+    turno,
+    rutina
   } = req.body;
 
   if (!nombreClase || !tipoClase || !cupoMaximo || !cupoDisponible || !estado || !idProfesor) {
@@ -159,8 +232,9 @@ exports.update = asyncHandler(async (req, res) => {
     cupoMaximo,
     cupoDisponible,
     estado,
-    null, 
+    null,
     idProfesor,
+    idPlan || null,
     id
   ]);
 
@@ -175,6 +249,8 @@ exports.update = asyncHandler(async (req, res) => {
       id
     ]);
   }
+
+  await guardarRutinaDeClase(id, idProfesor, nombreClase, rutina);
 
   return successResponse(res, 'Clase actualizada correctamente', {
     idClase: Number(id),
@@ -243,6 +319,7 @@ exports.delete = asyncHandler(async (req, res) => {
 module.exports = {
   getAll: exports.getAll,
   getClasesDisponibles: exports.getClasesDisponibles, // 🟢 Ahora sí exportado correctamente
+  getTurnosResumen: exports.getTurnosResumen,
   getById: exports.getById,
   insert: exports.insert,
   update: exports.update,

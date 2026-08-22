@@ -35,7 +35,7 @@ exports.crearReserva = asyncHandler(async (req, res) => {
   try {
     // Buscar la clase y sus cupos
     const sqlBuscarClase = `
-      SELECT c.idClase, c.cupoDisponible, c.nombreClase, c.estado
+      SELECT c.idClase, c.cupoDisponible, c.nombreClase, c.estado, c.idPlan
       FROM horarioclase h
       INNER JOIN diaclase c ON h.idClase = c.idClase
       WHERE h.idHorario = ? FOR UPDATE
@@ -78,20 +78,34 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     }
     const idAlumno = alumnoRows[0].idAlumno;
 
-    // 🚀 BUSCAMOS SI EL ALUMNO TIENE CRÉDITOS DISPONIBLES EN TU TABLA REAL 'credito'
-    // Filtramos por estado 'ACTIVO', vencimiento vigente y usamos 'creditosCisponibles' con S
-    const sqlBuscarCredito = `
-      SELECT idCredito, creditosCisponibles, creditosUtilizados
-      FROM credito
-      WHERE idAlumno = ? AND estado = 'ACTIVO' AND creditosCisponibles > 0 AND fechaVencimiento >= CURDATE()
-      ORDER BY fechaVencimiento ASC LIMIT 1 FOR UPDATE
-    `;
-    const [creditoRows] = await connection.query(sqlBuscarCredito, [idAlumno]);
+    // Buscar crédito activo del alumno; si la clase tiene idPlan, el crédito debe ser del mismo plan
+    let sqlBuscarCredito, creditoParams;
+    if (clase.idPlan) {
+      sqlBuscarCredito = `
+        SELECT idCredito, creditosCisponibles, creditosUtilizados
+        FROM credito
+        WHERE idAlumno = ? AND idPlan = ? AND estado = 'ACTIVO' AND creditosCisponibles > 0 AND fechaVencimiento >= CURDATE()
+        ORDER BY fechaVencimiento ASC LIMIT 1 FOR UPDATE
+      `;
+      creditoParams = [idAlumno, clase.idPlan];
+    } else {
+      sqlBuscarCredito = `
+        SELECT idCredito, creditosCisponibles, creditosUtilizados
+        FROM credito
+        WHERE idAlumno = ? AND estado = 'ACTIVO' AND creditosCisponibles > 0 AND fechaVencimiento >= CURDATE()
+        ORDER BY fechaVencimiento ASC LIMIT 1 FOR UPDATE
+      `;
+      creditoParams = [idAlumno];
+    }
+    const [creditoRows] = await connection.query(sqlBuscarCredito, creditoParams);
 
     if (creditoRows.length === 0) {
       await connection.rollback();
       connection.release();
-      return errorResponse(res, 'No poseés créditos disponibles activos para agendar clases.', 'SIN_CREDITOS', 400);
+      const msg = clase.idPlan
+        ? 'No tenés créditos disponibles para este tipo de plan. Verificá tu membresía activa.'
+        : 'No poseés créditos disponibles activos para agendar clases.';
+      return errorResponse(res, msg, 'SIN_CREDITOS', 400);
     }
 
     const creditoActivo = creditoRows[0];
@@ -168,6 +182,7 @@ exports.obtenerMisReservas = asyncHandler(async (req, res) => {
       h.horaInicio,
       h.horaFin,
       h.dia,
+      c.idClase,
       c.nombreClase,
       c.tipoClase,
       per_prof.nombrecompleto AS nombreProfesor

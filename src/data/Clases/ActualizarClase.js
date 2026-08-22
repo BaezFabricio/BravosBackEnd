@@ -1,13 +1,14 @@
 const actualizarClase = `
-  UPDATE diaclase 
-  SET 
+  UPDATE diaclase
+  SET
     nombreClase = ?,
     tipoClase = ?,
     cupoMaximo = ?,
     cupoDisponible = ?,
     estado = ?,
-    idGimnasio = ?, -- Acá el controlador va a mandar NULL automáticamente
-    idProfesor = ?
+    idGimnasio = ?,
+    idProfesor = ?,
+    idPlan = ?
   WHERE idClase = ?;
 `;
 

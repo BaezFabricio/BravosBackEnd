@@ -1,5 +1,5 @@
 const actualizarEstadoClase = `
-  UPDATE clase
+  UPDATE diaclase
   SET estado = ?
   WHERE idClase = ?
 `;

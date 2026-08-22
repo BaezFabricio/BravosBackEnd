@@ -155,12 +155,34 @@ exports.login = asyncHandler(async (req, res) => {
     }
   });
 
+  // 3.5 🟢 RESOLVEMOS LA IDENTIDAD REAL DE ESTA PERSONA (profesor/alumno)
+  // El token solo traía idUsuario/idPerfil, por eso el panel de profesor caía siempre a idProfesor = 1.
+  // Buscamos por idPersona; si hay registros duplicados tomamos el más antiguo (menor id).
+  let idProfesor = null;
+  let idAlumno = null;
+
+  if (usuario.idPersona) {
+    const [profesorRows] = await db.query(
+      'SELECT idProfesor FROM profesor WHERE idPersona = ? ORDER BY idProfesor ASC LIMIT 1',
+      [usuario.idPersona]
+    );
+    idProfesor = profesorRows[0]?.idProfesor ?? null;
+
+    const [alumnoRows] = await db.query(
+      'SELECT idAlumno FROM alumno WHERE idPersona = ? ORDER BY idAlumno ASC LIMIT 1',
+      [usuario.idPersona]
+    );
+    idAlumno = alumnoRows[0]?.idAlumno ?? null;
+  }
+
   const token = generateToken({
     idUsuario: usuario.idUsuario,
     correo: usuario.correo,
     username: usuario.username,
     idPerfil: usuario.idPerfil,
-    perfil: usuario.nombrePerfil 
+    perfil: usuario.nombrePerfil,
+    idProfesor,
+    idAlumno
   });
 
   // 4. 🚀 Devolvemos la respuesta impecable al Frontend
@@ -170,9 +192,11 @@ exports.login = asyncHandler(async (req, res) => {
       idUsuario: usuario.idUsuario,
       nombrecompleto: usuario.nombrecompleto,
       correo: usuario.correo,
-      perfil: usuario.nombrePerfil || 'admin 2', 
+      perfil: usuario.nombrePerfil || 'admin 2',
       estado: estadoReal, // 👈 Ahora viaja 'activo' sí o sí
       avatarUrl: usuario.avatarUrl || null,
+      idProfesor, // 👈 el panel de profesor ya no cae a 1 fijo
+      idAlumno,
     },
     permisos: listaPermisosFormateada, // 👈 Ahora el array viaja con tus datos de MySQL
   });

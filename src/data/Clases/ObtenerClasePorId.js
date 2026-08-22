@@ -8,7 +8,9 @@ const obtenerClasePorId = `
     c.estado,
     c.idGimnasio,
     c.idProfesor,
-    
+    c.idPlan,
+    p2.nombre AS nombrePlan,
+
     per.nombrecompleto AS nombreProfesor,
     MIN(h.horaInicio) AS horaInicio,
     MIN(h.horaFin) AS horaFin,
@@ -24,19 +26,22 @@ const obtenerClasePorId = `
   LEFT JOIN profesor p ON c.idProfesor = p.idProfesor
   LEFT JOIN persona per ON p.idPersona = per.idPersona
   LEFT JOIN horarioclase h ON c.idClase = h.idClase
+  LEFT JOIN plan p2 ON c.idPlan = p2.idPlan
 
   -- 🟢 FILTRO ESPECÍFICO: Trae solo la clase que seleccionaste
   WHERE c.idClase = ?
 
-  GROUP BY 
-    c.idClase, 
-    c.nombreClase, 
-    c.tipoClase, 
-    c.cupoMaximo, 
-    c.cupoDisponible, 
-    c.estado, 
-    c.idGimnasio, 
-    c.idProfesor, 
+  GROUP BY
+    c.idClase,
+    c.nombreClase,
+    c.tipoClase,
+    c.cupoMaximo,
+    c.cupoDisponible,
+    c.estado,
+    c.idGimnasio,
+    c.idProfesor,
+    c.idPlan,
+    p2.nombre,
     per.nombrecompleto
 `;
 

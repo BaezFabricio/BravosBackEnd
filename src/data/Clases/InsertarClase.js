@@ -6,9 +6,10 @@ const insertarClase = `
     cupoDisponible,
     estado,
     idGimnasio,
-    idProfesor
+    idProfesor,
+    idPlan
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 module.exports = insertarClase;
