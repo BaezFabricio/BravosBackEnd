@@ -8,6 +8,7 @@ const obtenerUsuarioRegistrado = require('../data/Auth/ObtenerUsuarioRegistrado'
 const insertarPersona = require('../data/Persona/InsertarPersona');
 const insertarUsuario = require('../data/Usuarios/InsertarUsuario');
 const { hashPassword, comparePassword } = require('../functions/encryption');
+const { crearNotificacion, crearNotificacionAdmins } = require('../functions/notificacion.service');
 const { generateToken } = require('../functions/jwt');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
@@ -86,6 +87,15 @@ exports.registro = asyncHandler(async (req, res) => {
 
     // Obtener usuario creado (volvemos a usar 'db' normalmente)
     const [nuevoUsuario] = await db.query(obtenerUsuarioRegistrado, [usuarioId]);
+
+    crearNotificacionAdmins('sistema',
+      'Nuevo registro pendiente',
+      `${nombrecompleto} (${correo}) se registró y está pendiente de verificación de correo.`
+    );
+    crearNotificacion(usuarioId, 'sistema',
+      '¡Bienvenido a Bravos Box!',
+      `Hola ${nombrecompleto}, tu cuenta fue creada. Revisá tu correo para verificarla y empezar a entrenar.`
+    );
 
     return successResponse(res, 'Usuario registrado. Por favor verifica tu correo electrónico para activar la cuenta.', {
       usuario: nuevoUsuario[0],
@@ -425,8 +435,15 @@ exports.recuperarContrasena = asyncHandler(async (req, res) => {
     // Hasheamos la nueva contraseña
     const hashed = await hashPassword(password);
 
-    // Actualizamos la contraseña del usuario asociado
-    await db.query('UPDATE usuario u JOIN persona p ON u.idPersona = p.idPersona SET u.contrasena = ? WHERE p.correo = ?', [hashed, email]);
+    // Actualizamos contraseña y verificamos la cuenta (el código confirma propiedad del correo)
+    const [updateResult] = await db.query(
+      'UPDATE usuario u JOIN persona p ON u.idPersona = p.idPersona SET u.contrasena = ?, u.correo_verificado = 1 WHERE p.correo = ?',
+      [hashed, email]
+    );
+
+    if (updateResult.affectedRows === 0) {
+      return errorResponse(res, 'No se encontró la cuenta asociada a ese correo', 'USER_NOT_FOUND', 404);
+    }
 
     // Limpiamos el código
     recoveryStore.delete(email);

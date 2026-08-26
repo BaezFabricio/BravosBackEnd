@@ -78,10 +78,10 @@ exports.getMetrics = asyncHandler(async (req, res) => {
     // 7. Grilla Inferior: Actividad Reciente (Muestra las últimas personas registradas de forma segura)
     const [activityRows] = await db.query(`
     (
-      SELECT 
+      SELECT
         per.nombrecompleto AS user,
         CONCAT('Reservó: ', dc.nombreClase) AS action,
-        r.fechaReserva AS fecha_orden,
+        COALESCE(r.creadoEn, r.fechaReserva) AS fecha_orden,
         'reservation' AS type
       FROM reserva r
       INNER JOIN alumno al ON r.idAlumno = al.idAlumno

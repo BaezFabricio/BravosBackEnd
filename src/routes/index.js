@@ -11,11 +11,14 @@ const reservasRoutes = require('./reservas.routes');
 const rutinasRoutes = require('./rutinas.routes');
 const planesRoutes = require('./planes.routes');
 const reportesRoutes = require('./reportes.routes');
+const ejerciciosRoutes = require('./ejercicios.routes');
+const notificacionesRoutes = require('./notificaciones.routes');
 
 const router = Router();
 
 // 2. REGISTRO DE ENDPOINTS (Controlá que ninguno falte ni esté duplicado)
 router.use('/auth', authRoutes);
+router.use('/notificaciones', notificacionesRoutes);
 router.use('/usuarios', usuariosRoutes);
 router.use('/perfiles', perfilesRoutes);
 router.use('/modulos', modulosRoutes);
@@ -24,5 +27,6 @@ router.use('/reservas', reservasRoutes);
 router.use('/rutinas', rutinasRoutes);
 router.use('/planes', planesRoutes);
 router.use('/reportes', reportesRoutes);
+router.use('/ejercicios', ejerciciosRoutes);
 
 module.exports = router;

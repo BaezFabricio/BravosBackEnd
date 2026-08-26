@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { crearNotificacion, crearNotificacionAdmins, getIdUsuarioPorProfesor, notificarAlumnosDeClase } = require('../functions/notificacion.service');
 
 const obtenerClases = require('../data/Clases/ObtenerClases');
 const obtenerClasePorId = require('../data/Clases/ObtenerClasePorId');
@@ -169,6 +170,15 @@ exports.insert = asyncHandler(async (req, res) => {
 
   await guardarRutinaDeClase(idClase, idProfesor, nombreClase, rutina);
 
+  const idUsuarioProfesor = await getIdUsuarioPorProfesor(idProfesor);
+  if (idUsuarioProfesor) {
+    crearNotificacion(idUsuarioProfesor, 'sistema',
+      'Nueva clase asignada',
+      `Se te asignó la clase "${nombreClase}" (${tipoClase}). Ya aparece en tu panel de asistencia.`
+    );
+  }
+  crearNotificacionAdmins('sistema', 'Clase creada', `Se creó la clase "${nombreClase}" con ${diasSemana.length} horario(s).`);
+
   return successResponse(res, 'Clase creada correctamente con sus horarios', {
     idClase,
     nombreClase,
@@ -238,6 +248,20 @@ exports.update = asyncHandler(async (req, res) => {
     id
   ]);
 
+  // Borrar reservas y asistencias antes de regenerar los horarios
+  const [horariosABorrar] = await db.query('SELECT idHorario FROM horarioclase WHERE idClase = ?', [id]);
+  const idHorariosABorrar = horariosABorrar.map(h => h.idHorario);
+  if (idHorariosABorrar.length > 0) {
+    const phH = idHorariosABorrar.map(() => '?').join(',');
+    const [reservasABorrar] = await db.query(`SELECT idReserva FROM reserva WHERE idHorario IN (${phH})`, idHorariosABorrar);
+    const idReservasABorrar = reservasABorrar.map(r => r.idReserva);
+    if (idReservasABorrar.length > 0) {
+      const phR = idReservasABorrar.map(() => '?').join(',');
+      await db.query(`DELETE FROM asistencia WHERE idReserva IN (${phR})`, idReservasABorrar);
+    }
+    await db.query(`DELETE FROM reserva WHERE idHorario IN (${phH})`, idHorariosABorrar);
+  }
+
   await db.query(eliminarHorariosPorClase, [id]);
 
   for (const dia of diasSemana) {
@@ -288,7 +312,22 @@ exports.updateEstado = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Clase no encontrada', 404);
   }
 
+  const claseInfo = claseExistente[0];
   await db.query(actualizarEstadoClase, [estado, id]);
+
+  const idUsuarioProfesor = await getIdUsuarioPorProfesor(claseInfo.idProfesor);
+  if (idUsuarioProfesor) {
+    crearNotificacion(idUsuarioProfesor, 'sistema',
+      'Estado de clase actualizado',
+      `La clase "${claseInfo.nombreClase}" cambió su estado a "${estado}".`
+    );
+  }
+  if (estado === 'Inactivo' || estado === 'Cancelado') {
+    notificarAlumnosDeClase(Number(id), 'sistema',
+      'Clase cancelada',
+      `La clase "${claseInfo.nombreClase}" fue cancelada. Contactá con el box para más información.`
+    );
+  }
 
   return successResponse(res, 'Estado de la clase actualizado correctamente', {
     idClase: Number(id),
@@ -298,7 +337,7 @@ exports.updateEstado = asyncHandler(async (req, res) => {
 
 /**
  * DELETE /api/clases/:id
- * Elimina una clase y sus horarios asociados
+ * Elimina una clase y todos sus registros relacionados en cascada
  */
 exports.delete = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -309,7 +348,41 @@ exports.delete = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Clase no encontrada', 404);
   }
 
+  const claseAEliminar = claseExistente[0];
+
+  // Notificar alumnos con reservas activas ANTES de eliminar
+  await notificarAlumnosDeClase(Number(id), 'sistema',
+    'Clase eliminada',
+    `La clase "${claseAEliminar.nombreClase}" fue eliminada del sistema. Tus reservas asociadas fueron canceladas.`
+  );
+  const idUsuarioProfesor = await getIdUsuarioPorProfesor(claseAEliminar.idProfesor);
+  if (idUsuarioProfesor) {
+    crearNotificacion(idUsuarioProfesor, 'sistema',
+      'Clase eliminada',
+      `La clase "${claseAEliminar.nombreClase}" fue eliminada del sistema.`
+    );
+  }
+
+  // Obtener los idHorario de esta clase para poder borrar las reservas asociadas
+  const [horarios] = await db.query('SELECT idHorario FROM horarioclase WHERE idClase = ?', [id]);
+  const idHorarios = horarios.map(h => h.idHorario);
+
+  if (idHorarios.length > 0) {
+    const phHorarios = idHorarios.map(() => '?').join(',');
+    const [reservas] = await db.query(`SELECT idReserva FROM reserva WHERE idHorario IN (${phHorarios})`, idHorarios);
+    const idReservas = reservas.map(r => r.idReserva);
+    if (idReservas.length > 0) {
+      const phReservas = idReservas.map(() => '?').join(',');
+      await db.query(`DELETE FROM asistencia WHERE idReserva IN (${phReservas})`, idReservas);
+    }
+    await db.query(`DELETE FROM reserva WHERE idHorario IN (${phHorarios})`, idHorarios);
+  }
+
   await db.query(eliminarHorariosPorClase, [id]);
+
+  // Borrar rutina vinculada (ejercicios cascadean por FK ON DELETE CASCADE)
+  await db.query('DELETE FROM rutina WHERE idClase = ?', [id]);
+
   await db.query(eliminarClase, [id]);
 
   return successResponse(res, 'Clase eliminada correctamente');

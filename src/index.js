@@ -6,6 +6,7 @@ const envConfig = require('./config/env');
 const Logger = require('./utils/logger');
 const { releaseOccupiedPort } = require('./utils/releaseOccupiedPort');
 const crearTablaAvatarUsuario = require('./data/Avatar/CrearTablaAvatarUsuario');
+const { crearTablaNotificacion } = require('./functions/notificacion.service');
 
 const logger = new Logger('Server');
 
@@ -32,6 +33,8 @@ async function startServer() {
     try {
       await db.initializePool();
       await db.query(crearTablaAvatarUsuario);
+      await crearTablaNotificacion();
+      await db.query(`ALTER TABLE reserva ADD COLUMN IF NOT EXISTS creadoEn DATETIME DEFAULT CURRENT_TIMESTAMP`);
     } catch (dbError) {
       if (requireDbOnStartup) {
         throw dbError;

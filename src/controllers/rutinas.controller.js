@@ -2,6 +2,7 @@ const db = require('../config/db');
 const obtenerAlumnosActivos = require('../data/Alumno/ObtenerAlumnosActivos');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
+const { crearNotificacion } = require('../functions/notificacion.service');
 
 /**
  * Reemplaza por completo los ejercicios de una rutina (borra e inserta de nuevo).
@@ -59,7 +60,16 @@ exports.getAll = asyncHandler(async (req, res) => {
     SELECT
       r.idRutina, r.nombre, r.descripcion, r.nivel, r.duracion, r.idProfesor,
       r.idClase, r.categoria, c.nombreClase,
-      COUNT(DISTINCT ar.idAlumno) AS cantidadAlumnos
+      CASE
+        WHEN r.idClase IS NOT NULL THEN (
+          SELECT COUNT(DISTINCT res.idAlumno)
+          FROM asistencia asi
+          INNER JOIN reserva res ON asi.idReserva = res.idReserva
+          INNER JOIN horarioclase hc ON res.idHorario = hc.idHorario
+          WHERE hc.idClase = r.idClase AND asi.estado = 'presente'
+        )
+        ELSE COUNT(DISTINCT ar.idAlumno)
+      END AS cantidadAlumnos
     FROM rutina r
     LEFT JOIN alumnorutina ar ON ar.idRutina = r.idRutina
     LEFT JOIN diaclase c ON c.idClase = r.idClase
@@ -149,6 +159,22 @@ exports.insert = asyncHandler(async (req, res) => {
   }
 
   await syncEjercicios(idRutina, ejercicios);
+
+  // Notificar a los alumnos asignados directamente
+  if (Array.isArray(alumnos) && alumnos.length > 0) {
+    const [alumnoRows] = await db.query(
+      `SELECT u.idUsuario FROM alumno a
+       INNER JOIN usuario u ON a.idPersona = u.idPersona
+       WHERE a.idAlumno IN (${alumnos.map(() => '?').join(',')})`,
+      alumnos
+    );
+    for (const row of alumnoRows) {
+      crearNotificacion(row.idUsuario, 'sistema',
+        'Nueva rutina asignada',
+        `Se te asignó la rutina "${nombre}". Podés verla en tu panel.`
+      );
+    }
+  }
 
   return successResponse(res, 'Rutina creada correctamente', {
     idRutina, nombre, descripcion, nivel, duracion, categoria, idProfesor,

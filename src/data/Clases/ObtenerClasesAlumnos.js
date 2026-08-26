@@ -1,17 +1,25 @@
 const obtenerClasesAlumnos = `
-  SELECT 
+  SELECT
     c.idClase,
     c.nombreClase,
     c.tipoClase,
     c.cupoMaximo,
-    c.cupoDisponible,
+    (
+      c.cupoMaximo - (
+        SELECT COUNT(*)
+        FROM reserva r
+        WHERE r.idHorario = h.idHorario
+          AND r.estado = 'proxima'
+          AND r.fechaReserva >= CURDATE()
+      )
+    ) AS cupoDisponible,
     c.estado,
     c.idGimnasio,
     c.idProfesor,
     per.nombrecompleto AS nombreProfesor,
-    h.idHorario,      -- 🟢 Fundamental para que el alumno reserve el turno correcto
-    h.dia,            -- 🟢 Devuelve el día limpio por separado (ej: 'LUNES')
-    h.horaInicio,     -- 🟢 Su hora exacta
+    h.idHorario,
+    h.dia,
+    h.horaInicio,
     h.horaFin,
     h.turno
   FROM diaclase c

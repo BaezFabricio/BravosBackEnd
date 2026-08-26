@@ -14,7 +14,6 @@
 async function sendWelcomeEmail(email, nombre) {
   try {
     // TODO: Implementar integración con servicio de correo
-    console.log(`Email de bienvenida enviado a ${email} para ${nombre}`);
     return true;
   } catch (error) {
     console.error('Error al enviar email:', error);
@@ -28,7 +27,6 @@ async function sendWelcomeEmail(email, nombre) {
 async function sendNotification(usuarioId, titulo, mensaje) {
   try {
     // TODO: Implementar sistema de notificaciones
-    console.log(`Notificación enviada al usuario ${usuarioId}: ${titulo}`);
     return true;
   } catch (error) {
     console.error('Error al enviar notificación:', error);

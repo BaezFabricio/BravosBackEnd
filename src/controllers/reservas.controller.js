@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
+const { crearNotificacion, getIdUsuarioPorReserva } = require('../functions/notificacion.service');
 
 /**
  * POST /api/vv1/reservas
@@ -33,14 +34,20 @@ exports.crearReserva = asyncHandler(async (req, res) => {
   await connection.beginTransaction();
 
   try {
-    // Buscar la clase y sus cupos
+    // Buscar la clase y calcular cupos disponibles dinámicamente para la fecha solicitada
     const sqlBuscarClase = `
-      SELECT c.idClase, c.cupoDisponible, c.nombreClase, c.estado, c.idPlan
+      SELECT c.idClase, c.cupoMaximo, c.nombreClase, c.estado, c.idPlan,
+        (
+          c.cupoMaximo - (
+            SELECT COUNT(*) FROM reserva r2
+            WHERE r2.idHorario = ? AND r2.estado = 'proxima' AND r2.fechaReserva = ?
+          )
+        ) AS cupoDisponible
       FROM horarioclase h
       INNER JOIN diaclase c ON h.idClase = c.idClase
       WHERE h.idHorario = ? FOR UPDATE
     `;
-    const [claseRows] = await connection.query(sqlBuscarClase, [idHorario]);
+    const [claseRows] = await connection.query(sqlBuscarClase, [idHorario, fechaReserva, idHorario]);
 
     if (claseRows.length === 0) {
       await connection.rollback();
@@ -82,10 +89,12 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     let sqlBuscarCredito, creditoParams;
     if (clase.idPlan) {
       sqlBuscarCredito = `
-        SELECT idCredito, creditosCisponibles, creditosUtilizados
-        FROM credito
-        WHERE idAlumno = ? AND idPlan = ? AND estado = 'ACTIVO' AND creditosCisponibles > 0 AND fechaVencimiento >= CURDATE()
-        ORDER BY fechaVencimiento ASC LIMIT 1 FOR UPDATE
+        SELECT c.idCredito, c.creditosCisponibles, c.creditosUtilizados
+        FROM credito c
+        INNER JOIN pago p ON c.idPago = p.idPago
+        WHERE c.idAlumno = ? AND p.idPlan = ? AND c.estado = 'ACTIVO'
+          AND c.creditosCisponibles > 0 AND c.fechaVencimiento >= CURDATE()
+        ORDER BY c.fechaVencimiento ASC LIMIT 1 FOR UPDATE
       `;
       creditoParams = [idAlumno, clase.idPlan];
     } else {
@@ -131,12 +140,6 @@ exports.crearReserva = asyncHandler(async (req, res) => {
       [fechaReserva, horaActual, idAlumno, idHorario, creditoActivo.idCredito]
     );
 
-    // Restamos 1 al cupo disponible de la clase
-    await connection.query(
-      "UPDATE diaclase SET cupoDisponible = cupoDisponible - 1 WHERE idClase = ?",
-      [clase.idClase]
-    );
-
     // 🚀 DESCUENTO REAL: Modificamos las columnas de tu grilla 'creditosCisponibles' y 'creditosUtilizados'
     await connection.query(
       `UPDATE credito 
@@ -148,6 +151,11 @@ exports.crearReserva = asyncHandler(async (req, res) => {
 
     await connection.commit();
     connection.release();
+
+    crearNotificacion(idUsuarioReal, 'reserva',
+      'Reserva confirmada',
+      `Tu reserva para "${clase.nombreClase}" el ${fechaReserva} fue confirmada. Se descontó 1 crédito.`
+    );
 
     return successResponse(res, '¡Reserva confirmada con éxito!', {
       idHorario,
@@ -174,11 +182,17 @@ exports.obtenerMisReservas = asyncHandler(async (req, res) => {
   }
 
   const query = `
-    SELECT 
+    SELECT
       r.idReserva,
       r.fechaReserva,
       r.horaReserva,
-      r.estado AS estadoReserva, 
+      CASE
+        WHEN r.estado = 'cancelada' THEN 'cancelada'
+        WHEN asi.estado = 'presente' THEN 'completada'
+        WHEN asi.estado = 'ausente' THEN 'inasistencia'
+        WHEN r.estado = 'proxima' AND r.fechaReserva < CURDATE() THEN 'completada'
+        ELSE r.estado
+      END AS estadoReserva,
       h.horaInicio,
       h.horaFin,
       h.dia,
@@ -193,13 +207,54 @@ exports.obtenerMisReservas = asyncHandler(async (req, res) => {
     INNER JOIN diaclase c ON h.idClase = c.idClase
     LEFT JOIN profesor prof ON c.idProfesor = prof.idProfesor
     LEFT JOIN persona per_prof ON prof.idPersona = per_prof.idPersona
-    WHERE u.idUsuario = ? 
+    LEFT JOIN asistencia asi ON asi.idReserva = r.idReserva
+    WHERE u.idUsuario = ?
     ORDER BY r.fechaReserva DESC, h.horaInicio DESC
   `;
 
   const [misReservas] = await db.query(query, [idUsuarioLogueado]);
 
   return successResponse(res, 'Reservas obtenidas correctamente', misReservas);
+});
+
+/**
+ * GET /api/vv1/reservas/admin/usuario/:idUsuario
+ * Admin: historial de reservas de un usuario específico
+ */
+exports.obtenerReservasDeUsuario = asyncHandler(async (req, res) => {
+  const { idUsuario } = req.params;
+
+  const query = `
+    SELECT
+      r.idReserva,
+      r.fechaReserva,
+      r.horaReserva,
+      CASE
+        WHEN r.estado = 'cancelada' THEN 'cancelada'
+        WHEN asi.estado = 'presente' THEN 'completada'
+        WHEN asi.estado = 'ausente' THEN 'inasistencia'
+        WHEN r.estado = 'proxima' AND r.fechaReserva < CURDATE() THEN 'completada'
+        ELSE r.estado
+      END AS estadoReserva,
+      c.nombreClase,
+      h.horaInicio,
+      h.horaFin,
+      h.dia,
+      per_prof.nombrecompleto AS nombreProfesor
+    FROM reserva r
+    INNER JOIN alumno a ON r.idAlumno = a.idAlumno
+    INNER JOIN usuario u ON a.idPersona = u.idPersona
+    INNER JOIN horarioclase h ON r.idHorario = h.idHorario
+    INNER JOIN diaclase c ON h.idClase = c.idClase
+    LEFT JOIN profesor prof ON c.idProfesor = prof.idProfesor
+    LEFT JOIN persona per_prof ON prof.idPersona = per_prof.idPersona
+    LEFT JOIN asistencia asi ON asi.idReserva = r.idReserva
+    WHERE u.idUsuario = ?
+    ORDER BY r.fechaReserva DESC, h.horaInicio DESC
+  `;
+
+  const [reservas] = await db.query(query, [idUsuario]);
+  return successResponse(res, 'Reservas del usuario obtenidas correctamente', reservas);
 });
 
 /**
@@ -257,9 +312,6 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
     // Actualizar estado de la reserva
     await connection.query("UPDATE reserva SET estado = 'cancelada' WHERE idReserva = ?", [id]);
 
-    // Devolver el cupo a la clase
-    await connection.query("UPDATE diaclase SET cupoDisponible = cupoDisponible + 1 WHERE idClase = ?", [reserva.idClase]);
-
     // 🚀 DEVOLUCIÓN REAL: Si canceló a tiempo, devolvemos el pase usando tus columnas reales
     if (devuelveCredito && reserva.idCredito) {
       await connection.query(
@@ -274,11 +326,18 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
     await connection.commit();
     connection.release();
 
+    crearNotificacion(idUsuarioReal, 'reserva',
+      'Reserva cancelada',
+      devuelveCredito
+        ? 'Tu reserva fue cancelada y el crédito fue devuelto a tu cuenta.'
+        : 'Tu reserva fue cancelada fuera de término. El crédito no fue reintegrado (menos de 2hs de anticipación).'
+    );
+
     return successResponse(res, 'Reserva cancelada correctamente.', {
       idReserva: Number(id),
       devuelveCredito,
-      mensaje: devuelveCredito 
-        ? "Tu crédito fue devuelto automáticamente." 
+      mensaje: devuelveCredito
+        ? "Tu crédito fue devuelto automáticamente."
         : "Cancelación fuera de término. El crédito no será reintegrado."
     });
 
@@ -301,7 +360,7 @@ exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
 
   // 1. Obtener los datos del abono activo actual de la tabla 'credito'
   const sqlAbono = `
-    SELECT 
+    SELECT
       c.idCredito,
       c.totalCreditos,
       c.creditosCisponibles,
@@ -313,8 +372,8 @@ exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
     INNER JOIN usuario u ON a.idPersona = u.idPersona
     INNER JOIN pago p ON c.idPago = p.idPago
     INNER JOIN plan pl ON p.idPlan = pl.idPlan
-    WHERE u.idUsuario = ? AND c.estado = 'ACTIVO'
-    ORDER BY c.fechaVencimiento ASC LIMIT 1
+    WHERE u.idUsuario = ? AND c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE()
+    ORDER BY c.fechaVencimiento DESC LIMIT 1
   `;
   const [abonoRows] = await db.query(sqlAbono, [idUsuarioLogueado]);
   
@@ -330,21 +389,18 @@ exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
   // 2. Obtener el historial integrado de movimientos mediante UNION (Reservas vs Renovaciones)
   const sqlMovimientos = `
     SELECT * FROM (
-      SELECT 
+      SELECT
         r.fechaReserva AS fecha,
         CONCAT('Reserva ', c.nombreClase, ' ', h.horaInicio) AS descripcion,
-        CASE 
-          WHEN r.estado = 'cancelada' AND EXISTS(
-            SELECT 1 FROM credito cr WHERE cr.idCredito = r.idCredito AND cr.estado = 'ACTIVO'
-          ) THEN 'Cancelada (Devuelto)'
+        CASE
+          WHEN r.estado = 'cancelada' AND r.idCredito IS NOT NULL THEN 'Cancelada (Devuelto)'
           WHEN r.estado = 'cancelada' THEN 'Cancelada (Fuera de término)'
-          WHEN r.estado = 'proxima' THEN 'Próxima'
+          WHEN r.estado = 'proxima' AND r.fechaReserva >= CURDATE() THEN 'Próxima'
+          WHEN asi.estado = 'ausente' THEN 'No asistió'
           ELSE 'Asistió'
         END AS estado,
-        CASE 
-          WHEN r.estado = 'cancelada' AND EXISTS(
-            SELECT 1 FROM credito cr WHERE cr.idCredito = r.idCredito AND cr.estado = 'ACTIVO'
-          ) THEN '+1'
+        CASE
+          WHEN r.estado = 'cancelada' AND r.idCredito IS NOT NULL THEN '+1'
           WHEN r.estado = 'cancelada' THEN '0'
           ELSE '-1'
         END AS creditos
@@ -353,11 +409,12 @@ exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
       INNER JOIN usuario u ON a.idPersona = u.idPersona
       INNER JOIN horarioclase h ON r.idHorario = h.idHorario
       INNER JOIN diaclase c ON h.idClase = c.idClase
+      LEFT JOIN asistencia asi ON asi.idReserva = r.idReserva
       WHERE u.idUsuario = ?
 
       UNION ALL
 
-      SELECT 
+      SELECT
         p.fechaPago AS fecha,
         CONCAT('Renovación membresía: ', pl.nombre) AS descripcion,
         'Histórico' AS estado,

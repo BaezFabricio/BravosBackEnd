@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const envConfig = require('./config/env');
 const { corsMiddleware } = require('./config/cors');
 
@@ -22,6 +23,9 @@ app.use(corsMiddleware);
 // Body parsers
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Archivos estáticos (videos de ejercicios)
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Logging en desarrollo
 if (envConfig.nodeEnv === 'development') {

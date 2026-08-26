@@ -25,7 +25,6 @@ function requirePermission(moduloNombre, accion) {
 
       // Si no se encontró ninguna fila, es porque no tiene ese permiso asignado
       if (permisos.length === 0) {
-        console.log(`🚫 Acceso Denegado: Perfil ${perfilIdActual} no tiene el permiso [${moduloNombre} -> ${accion}]`);
         return errorResponse(res, 'Acceso denegado por permisos insuficientes', 'FORBIDDEN', 403);
       }
 

@@ -56,11 +56,11 @@ const validateRegister = [
 const validateLogin = [
   body('correo')
     .trim()
+    .toLowerCase()
     .notEmpty()
     .withMessage('El correo es requerido')
     .isEmail()
-    .withMessage('El correo debe ser válido')
-    .normalizeEmail(),
+    .withMessage('El correo debe ser válido'),
 
   body('password')
     .notEmpty()

@@ -11,6 +11,8 @@ router.post('/', authenticateToken, requirePermission('Reservas', 'alta'), reser
 
 router.get('/mis-reservas', authenticateToken, requirePermission('Reservas', 'consulta'), reservasController.obtenerMisReservas);
 
+router.get('/admin/usuario/:idUsuario', authenticateToken, requirePermission('Reservas', 'consulta'), reservasController.obtenerReservasDeUsuario);
+
 
 router.patch('/:id/cancelar', authenticateToken, requirePermission('Reservas', 'modificacion'), reservasController.cancelarReserva);
 

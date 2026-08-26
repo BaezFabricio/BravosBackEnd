@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
+const { crearNotificacion, getIdUsuarioPorReserva } = require('../functions/notificacion.service');
 
 // Importaciones de tus archivos de datos
 const obtenerProfesoresActivos = require('../data/Profesores/ObtenerProfesoresActivos');
@@ -151,6 +152,16 @@ exports.marcarAsistencia = asyncHandler(async (req, res) => {
     await db.query(
       'INSERT INTO asistencia (fecha, estado, observacion, idReserva) VALUES (?, ?, ?, ?)',
       [fecha, estado, observacion || null, idReserva]
+    );
+  }
+
+  const idUsuarioAlumno = await getIdUsuarioPorReserva(idReserva);
+  if (idUsuarioAlumno) {
+    crearNotificacion(idUsuarioAlumno, 'asistencia',
+      estado === 'presente' ? 'Asistencia confirmada' : 'Inasistencia registrada',
+      estado === 'presente'
+        ? 'El profesor registró tu asistencia como PRESENTE en la clase de hoy.'
+        : 'El profesor registró tu asistencia como AUSENTE en la clase de hoy.'
     );
   }
 

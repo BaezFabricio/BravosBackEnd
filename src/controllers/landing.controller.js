@@ -12,9 +12,6 @@ const obtenerConfiguracion = async (req, res) => {
 
 const actualizarConfiguracion = async (req, res) => {
   try {
-    console.log('landing.config PUT body =>', req.body);
-    console.log('landing.config PUT files =>', req.files ? Object.keys(req.files) : []);
-
     const ActualizarLandingTextos = require('../data/Landing/ActualizarLandingTextos.js');
     const ActualizarLandingImagen = require('../data/Landing/ActualizarLandingImagen.js');
 
@@ -30,43 +27,21 @@ const actualizarConfiguracion = async (req, res) => {
     }
 
     // 2. Procesar imágenes (logo + 3 del carrusel)
-    const campos = ['logo', 'imagenHero1', 'imagenHero2', 'imagenHero3'];
+    const campos = ['logo', 'imagenHero1', 'imagenHero2', 'imagenHero3', 'imagenNosotros', 'imagenClase1', 'imagenClase2', 'imagenClase3'];
     for (const campo of campos) {
       if (req.files && req.files[campo]) {
         // Configuración de transformaciones por tipo de imagen
+        const transformacionHero = { width: 1920, height: 1080, crop: 'fill', gravity: 'auto', quality: 'auto', fetch_format: 'auto', resource_type: 'auto' };
+        const transformacionCard = { width: 800, height: 1000, crop: 'fill', gravity: 'auto', quality: 'auto', fetch_format: 'auto', resource_type: 'auto' };
         const transformaciones = {
-          logo: {
-            quality: 'auto',
-            fetch_format: 'auto',
-            resource_type: 'auto'
-          },
-          imagenHero1: {
-            width: 1920,
-            height: 1080,
-            crop: 'fill',
-            gravity: 'auto',
-            quality: 'auto',
-            fetch_format: 'auto',
-            resource_type: 'auto'
-          },
-          imagenHero2: {
-            width: 1920,
-            height: 1080,
-            crop: 'fill',
-            gravity: 'auto',
-            quality: 'auto',
-            fetch_format: 'auto',
-            resource_type: 'auto'
-          },
-          imagenHero3: {
-            width: 1920,
-            height: 1080,
-            crop: 'fill',
-            gravity: 'auto',
-            quality: 'auto',
-            fetch_format: 'auto',
-            resource_type: 'auto'
-          },
+          logo: { quality: 'auto', fetch_format: 'auto', resource_type: 'auto' },
+          imagenHero1: transformacionHero,
+          imagenHero2: transformacionHero,
+          imagenHero3: transformacionHero,
+          imagenNosotros: transformacionHero,
+          imagenClase1: transformacionCard,
+          imagenClase2: transformacionCard,
+          imagenClase3: transformacionCard,
         };
 
         const opciones = {

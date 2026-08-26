@@ -1,7 +1,6 @@
 import connection from "../config/db.js";
 
 export const guardarPerfilCompleto = async (req, res) => {
-  console.log("¡Llegó un pedido al Backend! Body:", req.body);
   const { idPerfil, nombrePerfil, descripcion, permisos } = req.body;
   const isNew = !idPerfil;
 
@@ -133,8 +132,6 @@ export const obtenerPerfiles = async (req, res) => {
         profesor_perfil: { activo: false, permisos: { alta: false, baja: false, consulta: false, modificacion: false } }
       };
 
-      // 🟢 DETECTIVE DE TERMINAL: Imprime en tu consola exactamente qué devuelve la DB
-      console.log(`[Bravos Debug] Permisos crudos para ${perfil.nombrePerfil}:`, permisosRows);
 
       if (permisosRows && permisosRows.length > 0) {
         permisosRows.forEach(row => {

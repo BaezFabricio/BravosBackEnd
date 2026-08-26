@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { crearNotificacion, crearNotificacionAdmins, getIdUsuarioPorCredito } = require('../functions/notificacion.service');
 const obtenerUsuarioPorId = require('../data/Usuarios/ObtenerUsuarioPorId');
 const insertarUsuario = require('../data/Usuarios/InsertarUsuario');
 const insertarPersona = require('../data/Persona/InsertarPersona');
@@ -54,10 +55,11 @@ exports.getAll = asyncHandler(async (req, res) => {
       p.correo,
       p.telefono,
       perf.nombrePerfil AS nombrePerfil,
+      ua.url AS avatarUrl,
       -- 🟢 CRÉDITOS REALES: Suma de turnos disponibles activos
       IFNULL(SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() THEN c.creditosCisponibles ELSE 0 END), 0) AS creditos,
       -- 🟢 MEMBRESÍA DINÁMICA: Si tiene créditos disponibles y no vencieron, está ACTIVA. Sino, VENCIDA.
-      CASE 
+      CASE
         WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'activa'
         ELSE 'vencida'
       END AS membresia
@@ -66,7 +68,8 @@ exports.getAll = asyncHandler(async (req, res) => {
     LEFT JOIN perfil perf ON u.idPerfil = perf.idPerfil
     LEFT JOIN alumno a ON p.idPersona = a.idPersona
     LEFT JOIN credito c ON a.idAlumno = c.idAlumno
-    GROUP BY u.idUsuario, p.idPersona, perf.idPerfil, a.idAlumno
+    LEFT JOIN usuario_avatar ua ON ua.idUsuario = u.idUsuario
+    GROUP BY u.idUsuario, p.idPersona, perf.idPerfil, a.idAlumno, ua.url
   `;
 
   const [rows] = await db.query(sql);
@@ -92,10 +95,12 @@ exports.getById = asyncHandler(async (req, res) => {
       p.correo AS email,                 -- 🟢 Mapea directo a user.email
       p.telefono AS telefono,           -- 🟢 Mapea directo a user.telefono
       p.fecha_registro AS fechaRegistro, -- 🟢 Usa tu columna real con guión bajo
-      perf.nombrePerfil AS perfil        -- 🟢 Mapea directo a user.perfil
+      perf.nombrePerfil AS perfil,       -- 🟢 Mapea directo a user.perfil
+      ua.url AS avatarUrl
     FROM usuario u
     INNER JOIN persona p ON u.idPersona = p.idpersona -- 💡 idpersona va todo en minúsculas en tu DB
     LEFT JOIN perfil perf ON u.idPerfil = perf.idPerfil
+    LEFT JOIN usuario_avatar ua ON ua.idUsuario = u.idUsuario
     WHERE u.idUsuario = ?
   `;
 
@@ -129,8 +134,6 @@ exports.getById = asyncHandler(async (req, res) => {
     creditos: metricas.creditosCalculados,
     membresia: metricas.membresiaCalculada  
   };
-  console.log("=== PAQUETE MANDADO AL FRONTEND ===", JSON.stringify(usuarioFinal, null, 2));
-
   return successResponse(res, 'Usuario obtenido correctamente', usuarioFinal);
 });
 
@@ -173,6 +176,16 @@ exports.create = asyncHandler(async (req, res) => {
     await connection.commit();
 
     const [nuevoUsuario] = await db.query(obtenerUsuarioPorId, [usuarioResult.insertId]);
+
+    crearNotificacionAdmins('sistema',
+      'Nuevo usuario registrado',
+      `Se registró un nuevo usuario: ${nombrecompleto} (${correo}).`
+    );
+    crearNotificacion(usuarioResult.insertId, 'sistema',
+      '¡Bienvenido a Bravos Box!',
+      `Hola ${nombrecompleto}, tu cuenta fue creada exitosamente. ¡Empezá a entrenar!`
+    );
+
     return successResponse(res, 'Usuario creado exitosamente con sus automatizaciones', nuevoUsuario[0], 201);
 
   } catch (error) {
@@ -256,12 +269,19 @@ exports.cambiarEstado = asyncHandler(async (req, res) => {
   await db.query(actualizarEstadoUsuario, [estado, id]);
   const [usuarioActualizado] = await db.query(obtenerUsuarioPorId, [id]);
 
+  crearNotificacion(Number(id), 'sistema',
+    estado === 'activo' ? 'Cuenta activada' : 'Cuenta desactivada',
+    estado === 'activo'
+      ? 'Tu cuenta fue activada. Ya podés acceder al sistema normalmente.'
+      : 'Tu cuenta fue desactivada por un administrador. Contactá con el box para más información.'
+  );
+
   return successResponse(res, `Usuario marcado como ${estado}`, usuarioActualizado[0]);
 });
 
 /**
  * DELETE /api/usuarios/:id
- * Elimina un usuario y su persona vinculada
+ * Elimina un usuario y todos sus registros asociados en cascada
  */
 exports.delete = asyncHandler(async (req, res) => {
   const { id } = req.params;
@@ -272,14 +292,56 @@ exports.delete = asyncHandler(async (req, res) => {
   }
 
   const usuario = usuarioExistente[0];
+  const idPersona = usuario.idPersona || usuario.idpersona;
 
-  await db.query(eliminarUsuario, [id]);
-  await db.query(eliminarPersona, [usuario.idPersona || usuario.idpersona]);
+  const connection = await db.getConnection();
+  await connection.beginTransaction();
 
-  return successResponse(res, 'Usuario eliminado exitosamente', {
-    idUsuario: id,
-    nombrecompleto: usuario.nombrecompleto,
-  });
+  try {
+    // 1. Asistencias de las reservas del alumno
+    await connection.query(`
+      DELETE asi FROM asistencia asi
+      INNER JOIN reserva r ON asi.idReserva = r.idReserva
+      INNER JOIN alumno a ON r.idAlumno = a.idAlumno
+      WHERE a.idPersona = ?`, [idPersona]);
+
+    // 2. Reservas del alumno
+    await connection.query(`
+      DELETE r FROM reserva r
+      INNER JOIN alumno a ON r.idAlumno = a.idAlumno
+      WHERE a.idPersona = ?`, [idPersona]);
+
+    // 3. Créditos del alumno
+    await connection.query(`
+      DELETE c FROM credito c
+      INNER JOIN alumno a ON c.idAlumno = a.idAlumno
+      WHERE a.idPersona = ?`, [idPersona]);
+
+    // 4. Registro de alumno
+    await connection.query('DELETE FROM alumno WHERE idPersona = ?', [idPersona]);
+
+    // 5. Registro de profesor (si aplica)
+    await connection.query('DELETE FROM profesor WHERE idPersona = ?', [idPersona]);
+
+    // 6. Usuario (notificaciones se borran por CASCADE)
+    await connection.query('DELETE FROM usuario WHERE idUsuario = ?', [id]);
+
+    // 7. Persona
+    await connection.query('DELETE FROM persona WHERE idpersona = ?', [idPersona]);
+
+    await connection.commit();
+    connection.release();
+
+    return successResponse(res, 'Usuario eliminado exitosamente', {
+      idUsuario: id,
+      nombrecompleto: usuario.nombrecompleto,
+    });
+  } catch (err) {
+    await connection.rollback();
+    connection.release();
+    console.error('Error al eliminar usuario en cascada:', err.message);
+    return errorResponse(res, 'No se pudo eliminar el usuario. Verificá que no tenga registros dependientes.', 'DELETE_FAILED', 500);
+  }
 });
 
 /**
@@ -481,6 +543,11 @@ exports.createAbonoUsuario = asyncHandler(async (req, res) => {
     ]
   );
 
+  crearNotificacion(Number(id), 'credito',
+    'Membresía activada',
+    `Se cargó el plan "${tipoAbono}" con ${plan.cantidadCreditos} créditos. Vence el ${vencimientoReal}.`
+  );
+
   return successResponse(res, 'Abono cargado y Alumno inicializado correctamente', null, 201);
 });
 
@@ -544,6 +611,16 @@ exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
     ]
   );
 
+  const idUsuarioAlumno = await getIdUsuarioPorCredito(idCreditoReal);
+  if (idUsuarioAlumno) {
+    crearNotificacion(idUsuarioAlumno, 'credito',
+      'Membresía actualizada',
+      estadoFormateado === 'CANCELADO'
+        ? 'Tu membresía fue marcada como cancelada. Contactá con el box para más información.'
+        : `Tu membresía fue actualizada: ${totalCreditos} créditos en total, vence el ${fechaVencimiento}.`
+    );
+  }
+
   return successResponse(res, 'Abono modificado correctamente en la base de datos');
 });
 
@@ -567,6 +644,14 @@ exports.cancelarAbonoUsuario = asyncHandler(async (req, res) => {
      WHERE idCredito = ?`,
     [idCredito]
   );
+
+  const idUsuarioAlumno = await getIdUsuarioPorCredito(idCredito);
+  if (idUsuarioAlumno) {
+    crearNotificacion(idUsuarioAlumno, 'credito',
+      'Membresía cancelada',
+      'Tu membresía fue cancelada por un administrador. Tus créditos disponibles fueron puestos en cero. Contactá con el box.'
+    );
+  }
 
   return successResponse(res, 'Abono cancelado correctamente');
 });
