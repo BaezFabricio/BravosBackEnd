@@ -22,8 +22,27 @@ const { syncEjercicios } = require('./rutinas.controller');
 async function guardarRutinaDeClase(idClase, idProfesor, nombreClase, rutina) {
   if (!rutina) return;
 
-  const { categoria, nivel, descripcion, ejercicios } = rutina;
-  const tieneContenido = categoria || nivel || descripcion || (Array.isArray(ejercicios) && ejercicios.length > 0);
+  const { categoria, nivel, descripcion, ejercicios, publicarEn } = rutina;
+
+  // Si ejercicios es string (HTML de rich text), lo empaquetamos en descripcion
+  // como JSON {desc, rutina} para evitar truncar en ejercicio.nombre (VARCHAR)
+  let descripcionFinal;
+  let ejerciciosArray;
+
+  if (typeof ejercicios === 'string') {
+    const contenidoRutina = ejercicios.trim();
+    if (contenidoRutina) {
+      descripcionFinal = JSON.stringify({ desc: descripcion || '', rutina: contenidoRutina });
+    } else {
+      descripcionFinal = descripcion || null;
+    }
+    ejerciciosArray = [];
+  } else {
+    descripcionFinal = descripcion || null;
+    ejerciciosArray = Array.isArray(ejercicios) ? ejercicios : [];
+  }
+
+  const tieneContenido = categoria || nivel || descripcionFinal || ejerciciosArray.length > 0;
   if (!tieneContenido) return;
 
   const [existente] = await db.query('SELECT idRutina FROM rutina WHERE idClase = ?', [idClase]);
@@ -33,17 +52,17 @@ async function guardarRutinaDeClase(idClase, idProfesor, nombreClase, rutina) {
     idRutina = existente[0].idRutina;
     await db.query(
       'UPDATE rutina SET nombre = ?, descripcion = ?, nivel = ?, categoria = ?, idProfesor = ? WHERE idRutina = ?',
-      [nombreClase, descripcion || null, nivel || null, categoria || null, idProfesor, idRutina]
+      [nombreClase, descripcionFinal, nivel || null, categoria || null, idProfesor, idRutina]
     );
   } else {
     const [result] = await db.query(
       'INSERT INTO rutina (nombre, descripcion, nivel, categoria, idProfesor, idClase) VALUES (?, ?, ?, ?, ?, ?)',
-      [nombreClase, descripcion || null, nivel || null, categoria || null, idProfesor, idClase]
+      [nombreClase, descripcionFinal, nivel || null, categoria || null, idProfesor, idClase]
     );
     idRutina = result.insertId;
   }
 
-  await syncEjercicios(idRutina, ejercicios);
+  await syncEjercicios(idRutina, ejerciciosArray);
 }
 
 /**
@@ -248,30 +267,41 @@ exports.update = asyncHandler(async (req, res) => {
     id
   ]);
 
-  // Borrar reservas y asistencias antes de regenerar los horarios
-  const [horariosABorrar] = await db.query('SELECT idHorario FROM horarioclase WHERE idClase = ?', [id]);
-  const idHorariosABorrar = horariosABorrar.map(h => h.idHorario);
-  if (idHorariosABorrar.length > 0) {
-    const phH = idHorariosABorrar.map(() => '?').join(',');
-    const [reservasABorrar] = await db.query(`SELECT idReserva FROM reserva WHERE idHorario IN (${phH})`, idHorariosABorrar);
-    const idReservasABorrar = reservasABorrar.map(r => r.idReserva);
-    if (idReservasABorrar.length > 0) {
-      const phR = idReservasABorrar.map(() => '?').join(',');
-      await db.query(`DELETE FROM asistencia WHERE idReserva IN (${phR})`, idReservasABorrar);
-    }
-    await db.query(`DELETE FROM reserva WHERE idHorario IN (${phH})`, idHorariosABorrar);
-  }
-
-  await db.query(eliminarHorariosPorClase, [id]);
+  // Actualizar horarios sin tocar las reservas existentes:
+  // - Si el día ya existía → UPDATE (hora/turno)
+  // - Si el día es nuevo → INSERT
+  // - Si el día fue eliminado y no tiene reservas → DELETE
+  // - Si el día fue eliminado pero tiene reservas → no se toca
+  const [horariosActuales] = await db.query(
+    'SELECT idHorario, dia FROM horarioclase WHERE idClase = ?', [id]
+  );
+  const mapaActual = {};
+  horariosActuales.forEach(h => { mapaActual[h.dia] = h.idHorario; });
 
   for (const dia of diasSemana) {
-    await db.query(insertarHorarioClase, [
-      dia,
-      horaInicio,
-      horaFin,
-      turno,
-      id
-    ]);
+    if (mapaActual[dia]) {
+      // Ya existe → solo actualizar hora y turno
+      await db.query(
+        'UPDATE horarioclase SET horaInicio = ?, horaFin = ?, turno = ? WHERE idHorario = ?',
+        [horaInicio, horaFin, turno, mapaActual[dia]]
+      );
+      delete mapaActual[dia]; // marcar como procesado
+    } else {
+      // Día nuevo → insertar
+      await db.query(insertarHorarioClase, [dia, horaInicio, horaFin, turno, id]);
+    }
+  }
+
+  // Los días que quedaron en mapaActual ya no están en el nuevo schedule
+  for (const [dia, idHorario] of Object.entries(mapaActual)) {
+    const [reservas] = await db.query(
+      'SELECT COUNT(*) AS total FROM reserva WHERE idHorario = ?', [idHorario]
+    );
+    if (reservas[0].total === 0) {
+      // Sin reservas → se puede borrar
+      await db.query('DELETE FROM horarioclase WHERE idHorario = ?', [idHorario]);
+    }
+    // Con reservas → se deja como está (el horario queda pero ya no aparece en los días activos)
   }
 
   await guardarRutinaDeClase(id, idProfesor, nombreClase, rutina);

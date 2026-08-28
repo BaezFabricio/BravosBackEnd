@@ -8,7 +8,8 @@ const obtenerClases = `
     c.estado,
     c.idGimnasio,
     c.idProfesor,
-    
+    c.idPlan,
+
     per.nombrecompleto AS nombreProfesor,
     MIN(h.horaInicio) AS horaInicio,
     MIN(h.horaFin) AS horaFin,
@@ -31,8 +32,9 @@ const obtenerClases = `
     c.cupoMaximo, 
     c.cupoDisponible, 
     c.estado, 
-    c.idGimnasio, 
-    c.idProfesor, 
+    c.idGimnasio,
+    c.idPlan,
+    c.idProfesor,
     per.nombrecompleto
 
   ORDER BY c.idClase DESC

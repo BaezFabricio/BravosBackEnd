@@ -184,6 +184,7 @@ exports.obtenerMisReservas = asyncHandler(async (req, res) => {
   const query = `
     SELECT
       r.idReserva,
+      r.idHorario,
       r.fechaReserva,
       r.horaReserva,
       CASE

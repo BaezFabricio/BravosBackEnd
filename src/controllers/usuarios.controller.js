@@ -404,6 +404,7 @@ exports.getAbonosByUsuario = asyncHandler(async (req, res) => {
       p.fechaPago AS creado,
       c.fechaInicio AS inicio,
       c.fechaVencimiento AS vencimiento,
+      pl.idPlan,
       pl.nombre AS abono,
       c.totalCreditos AS turnos,
       0 AS ajuste,
@@ -421,6 +422,36 @@ exports.getAbonosByUsuario = asyncHandler(async (req, res) => {
     [idAlumno]
   );
 
+  return successResponse(res, 'Abonos obtenidos correctamente', abonos);
+});
+
+exports.getAllAbonos = asyncHandler(async (req, res) => {
+  const [abonos] = await db.query(
+    `SELECT
+      c.idCredito AS id,
+      u.idUsuario,
+      per.nombrecompleto AS nombreAlumno,
+      p.fechaPago AS creado,
+      c.fechaInicio AS inicio,
+      c.fechaVencimiento AS vencimiento,
+      pl.idPlan,
+      pl.nombre AS abono,
+      c.totalCreditos AS turnos,
+      0 AS ajuste,
+      c.creditosUtilizados AS usados,
+      c.creditosCisponibles AS disponibles,
+      c.estado,
+      pPers.nombrecompleto AS operadorReal
+     FROM credito c
+     INNER JOIN pago p ON c.idPago = p.idPago
+     INNER JOIN plan pl ON p.idPlan = pl.idPlan
+     INNER JOIN alumno a ON c.idAlumno = a.idAlumno
+     INNER JOIN persona per ON a.idPersona = per.idPersona
+     INNER JOIN usuario u ON per.idPersona = u.idPersona
+     LEFT JOIN usuario pUsu ON p.idUsuarioOperador = pUsu.idUsuario
+     LEFT JOIN persona pPers ON pUsu.idPersona = pPers.idPersona
+     ORDER BY c.idCredito DESC`
+  );
   return successResponse(res, 'Abonos obtenidos correctamente', abonos);
 });
 

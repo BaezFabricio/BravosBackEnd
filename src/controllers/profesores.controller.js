@@ -29,14 +29,16 @@ exports.getMisClases = asyncHandler(async (req, res) => {
       c.cupoMaximo,
       c.cupoDisponible,
       c.estado,
+      pl.nombre AS categoria,
       GROUP_CONCAT(h.dia ORDER BY FIELD(h.dia,'LUNES','MARTES','MIERCOLES','JUEVES','VIERNES','SABADO','DOMINGO') SEPARATOR ', ') AS dias,
       MIN(h.horaInicio) AS horaInicio,
       MIN(h.horaFin) AS horaFin
     FROM diaclase c
     LEFT JOIN horarioclase h ON c.idClase = h.idClase
+    LEFT JOIN plan pl ON c.idPlan = pl.idPlan
     WHERE c.idProfesor = ?
-    GROUP BY c.idClase, c.nombreClase, c.tipoClase, c.cupoMaximo, c.cupoDisponible, c.estado
-    ORDER BY c.nombreClase
+    GROUP BY c.idClase, c.nombreClase, c.tipoClase, c.cupoMaximo, c.cupoDisponible, c.estado, pl.nombre
+    ORDER BY pl.nombre, c.nombreClase
   `, [idProfesor]);
 
   return successResponse(res, 'Clases del profesor recuperadas correctamente', clases);

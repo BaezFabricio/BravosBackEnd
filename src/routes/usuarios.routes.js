@@ -15,6 +15,13 @@ router.get('/', authenticateToken, usuariosController.getAll);
  * RUTAS DE ABONOS - Deben ir antes de la ruta con ':id' para evitar colisiones
  */
 router.get(
+  '/abonos/todos',
+  authenticateToken,
+  requirePermission('Usuarios', 'consulta'),
+  usuariosController.getAllAbonos
+);
+
+router.get(
   '/:id/abonos',
   authenticateToken,
   allowSelfOrPermission('Usuarios', 'consulta'),
