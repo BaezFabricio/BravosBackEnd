@@ -21,12 +21,15 @@ const obtenerClasesAlumnos = `
     h.dia,
     h.horaInicio,
     h.horaFin,
-    h.turno
+    h.turno,
+    h.fechaEspecifica
   FROM diaclase c
   INNER JOIN horarioclase h ON c.idClase = h.idClase
   LEFT JOIN profesor p ON c.idProfesor = p.idProfesor
   LEFT JOIN persona per ON p.idPersona = per.idPersona
   WHERE c.estado = 'Activo'
+    AND (h.fechaEspecifica IS NULL OR h.fechaEspecifica >= CURDATE())
+    AND (c.fechaPublicacion IS NULL OR c.fechaPublicacion <= NOW())
   ORDER BY h.horaInicio ASC
 `;
 

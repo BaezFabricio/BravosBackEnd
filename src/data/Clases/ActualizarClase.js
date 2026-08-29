@@ -8,7 +8,9 @@ const actualizarClase = `
     estado = ?,
     idGimnasio = ?,
     idProfesor = ?,
-    idPlan = ?
+    idPlan = ?,
+    fechaPublicacion = ?,
+    emailEnviado = 0
   WHERE idClase = ?;
 `;
 

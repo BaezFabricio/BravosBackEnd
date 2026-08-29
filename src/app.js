@@ -27,13 +27,6 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Archivos estáticos (videos de ejercicios)
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// Logging en desarrollo
-if (envConfig.nodeEnv === 'development') {
-  app.use((req, res, next) => {
-    logger.log(`${req.method} ${req.path}`);
-    next();
-  });
-}
 
 // ========== RUTAS ==========
 

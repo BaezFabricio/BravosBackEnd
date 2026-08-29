@@ -171,7 +171,8 @@ exports.insert = asyncHandler(async (req, res) => {
     for (const row of alumnoRows) {
       crearNotificacion(row.idUsuario, 'sistema',
         'Nueva rutina asignada',
-        `Se te asignó la rutina "${nombre}". Podés verla en tu panel.`
+        `Se te asignó la rutina "${nombre}". Podés verla en tu panel.`,
+        '/alumno/reservas'
       );
     }
   }

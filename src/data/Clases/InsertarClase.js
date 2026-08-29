@@ -7,9 +7,10 @@ const insertarClase = `
     estado,
     idGimnasio,
     idProfesor,
-    idPlan
+    idPlan,
+    fechaPublicacion
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 module.exports = insertarClase;

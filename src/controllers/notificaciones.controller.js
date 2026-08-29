@@ -10,7 +10,7 @@ exports.getMias = asyncHandler(async (req, res) => {
   const idUsuario = req.user.idUsuario;
 
   const [rows] = await db.query(
-    `SELECT idNotificacion, tipo, titulo, mensaje, leida, creadoEn
+    `SELECT idNotificacion, tipo, titulo, mensaje, link, leida, creadoEn
      FROM notificacion
      WHERE idUsuario = ?
      ORDER BY creadoEn DESC

@@ -89,7 +89,77 @@ const sendRecoveryEmail = async (email, nombre, code) => {
   }
 }
 
+/**
+ * Notifica a un alumno que una clase ya está abierta para reservar.
+ */
+const sendClaseDisponibleEmail = async (email, nombre, clase) => {
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const urlReservas = `${frontendUrl}/alumno/clases`;
+
+  const fechaStr = clase.fechaEspecifica
+    ? (() => {
+        const raw = clase.fechaEspecifica instanceof Date
+          ? clase.fechaEspecifica.toISOString()
+          : String(clase.fechaEspecifica);
+        const [y, m, d] = raw.split('T')[0].split('-').map(Number);
+        const f = new Date(y, m - 1, d);
+        return f.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      })()
+    : clase.diasSemana || '';
+
+  const mailOptions = {
+    from: `"Bravos Box 🏋️‍♂️" <${process.env.SMTP_USER}>`,
+    to: email,
+    subject: `¡Nueva clase disponible: ${clase.nombreClase}! 💪`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
+        <div style="background: #111111; padding: 28px 32px; text-align: center;">
+          <p style="color: #a3e635; font-size: 11px; font-weight: 900; letter-spacing: 3px; text-transform: uppercase; margin: 0 0 8px 0;">Bravos Box</p>
+          <h1 style="color: #ffffff; font-size: 26px; font-weight: 900; text-transform: uppercase; margin: 0; letter-spacing: 1px;">¡Clase disponible!</h1>
+        </div>
+
+        <div style="padding: 32px;">
+          <p style="font-size: 16px; color: #333; margin: 0 0 20px 0;">Hola <strong>${nombre}</strong>,</p>
+          <p style="font-size: 15px; color: #555; line-height: 1.6; margin: 0 0 24px 0;">
+            La clase <strong style="color: #111;">${clase.nombreClase}</strong> ya está abierta para reservas. ¡No te quedes sin lugar!
+          </p>
+
+          <div style="background: #f8f8f8; border-left: 4px solid #a3e635; padding: 16px 20px; margin-bottom: 28px; border-radius: 0 6px 6px 0;">
+            ${clase.nombreProfesor ? `<p style="margin: 0 0 6px 0; font-size: 13px; color: #666;">👟 <strong>Coach:</strong> ${clase.nombreProfesor}</p>` : ''}
+            ${fechaStr ? `<p style="margin: 0 0 6px 0; font-size: 13px; color: #666;">📅 <strong>Fecha:</strong> ${fechaStr}</p>` : ''}
+            ${clase.horaInicio ? `<p style="margin: 0; font-size: 13px; color: #666;">🕐 <strong>Horario:</strong> ${clase.horaInicio.substring(0,5)} hs</p>` : ''}
+          </div>
+
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${urlReservas}" style="background-color: #a3e635; color: #000; padding: 14px 40px; text-decoration: none; font-size: 14px; font-weight: 900; border-radius: 5px; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">
+              Reservar ahora →
+            </a>
+          </div>
+
+          <div style="background: #fff8e1; border: 1px solid #ffe082; border-radius: 6px; padding: 14px 18px; margin-top: 8px;">
+            <p style="margin: 0; font-size: 13px; color: #795548; line-height: 1.5;">
+              💡 <strong>Tip:</strong> Necesitás reservar primero para poder ver la rutina de la clase. Una vez que confirmás tu lugar, la rutina queda disponible en tu perfil.
+            </p>
+          </div>
+        </div>
+
+        <div style="background: #f5f5f5; padding: 16px 32px; text-align: center;">
+          <p style="font-size: 11px; color: #999; margin: 0;">Este correo fue generado automáticamente por Bravos Box. No respondas este mensaje.</p>
+        </div>
+      </div>
+    `
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`[Email] Clase disponible enviado a: ${email}`);
+  } catch (error) {
+    console.error(`[Email Error] Falla enviando clase disponible a ${email}:`, error.message);
+  }
+};
+
 module.exports = {
   sendVerificationEmail,
   sendRecoveryEmail,
+  sendClaseDisponibleEmail,
 };

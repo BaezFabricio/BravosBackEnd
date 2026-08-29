@@ -7,6 +7,7 @@ const Logger = require('./utils/logger');
 const { releaseOccupiedPort } = require('./utils/releaseOccupiedPort');
 const crearTablaAvatarUsuario = require('./data/Avatar/CrearTablaAvatarUsuario');
 const { crearTablaNotificacion } = require('./functions/notificacion.service');
+const { iniciarCronPublicacion } = require('./functions/publicacionCron');
 
 const logger = new Logger('Server');
 
@@ -34,7 +35,17 @@ async function startServer() {
       await db.initializePool();
       await db.query(crearTablaAvatarUsuario);
       await crearTablaNotificacion();
-      await db.query(`ALTER TABLE reserva ADD COLUMN IF NOT EXISTS creadoEn DATETIME DEFAULT CURRENT_TIMESTAMP`);
+      // Migraciones independientes — fallan silenciosamente si la columna ya existe
+      const migraciones = [
+        `ALTER TABLE reserva ADD COLUMN creadoEn DATETIME DEFAULT CURRENT_TIMESTAMP`,
+        `ALTER TABLE diaclase ADD COLUMN fechaPublicacion DATETIME NULL`,
+        `ALTER TABLE diaclase ADD COLUMN emailEnviado TINYINT DEFAULT 0`,
+      ];
+      for (const sql of migraciones) {
+        try { await db.query(sql); } catch { /* columna ya existe */ }
+      }
+
+      iniciarCronPublicacion();
     } catch (dbError) {
       if (requireDbOnStartup) {
         throw dbError;

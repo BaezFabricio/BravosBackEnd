@@ -90,7 +90,8 @@ exports.registro = asyncHandler(async (req, res) => {
 
     crearNotificacionAdmins('sistema',
       'Nuevo registro pendiente',
-      `${nombrecompleto} (${correo}) se registró y está pendiente de verificación de correo.`
+      `${nombrecompleto} (${correo}) se registró y está pendiente de verificación de correo.`,
+      '/admin/usuarios'
     );
     crearNotificacion(usuarioId, 'sistema',
       '¡Bienvenido a Bravos Box!',

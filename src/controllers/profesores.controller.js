@@ -163,7 +163,8 @@ exports.marcarAsistencia = asyncHandler(async (req, res) => {
       estado === 'presente' ? 'Asistencia confirmada' : 'Inasistencia registrada',
       estado === 'presente'
         ? 'El profesor registró tu asistencia como PRESENTE en la clase de hoy.'
-        : 'El profesor registró tu asistencia como AUSENTE en la clase de hoy.'
+        : 'El profesor registró tu asistencia como AUSENTE en la clase de hoy.',
+      '/alumno/reservas'
     );
   }
 

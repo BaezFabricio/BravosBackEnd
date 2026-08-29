@@ -135,10 +135,11 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     const horaActual = new Date().toLocaleTimeString('es-AR', { hour12: false });
     
     // Insertamos la reserva (guardamos el idCredito para saber de dónde descontó por si cancela)
-    await connection.query(
+    const [insertResult] = await connection.query(
       "INSERT INTO reserva (fechaReserva, horaReserva, estado, idAlumno, idHorario, idCredito) VALUES (?, ?, 'proxima', ?, ?, ?)",
       [fechaReserva, horaActual, idAlumno, idHorario, creditoActivo.idCredito]
     );
+    const idReserva = insertResult.insertId;
 
     // 🚀 DESCUENTO REAL: Modificamos las columnas de tu grilla 'creditosCisponibles' y 'creditosUtilizados'
     await connection.query(
@@ -154,10 +155,12 @@ exports.crearReserva = asyncHandler(async (req, res) => {
 
     crearNotificacion(idUsuarioReal, 'reserva',
       'Reserva confirmada',
-      `Tu reserva para "${clase.nombreClase}" el ${fechaReserva} fue confirmada. Se descontó 1 crédito.`
+      `Tu reserva para "${clase.nombreClase}" el ${fechaReserva} fue confirmada. Se descontó 1 crédito.`,
+      '/alumno/reservas'
     );
 
     return successResponse(res, '¡Reserva confirmada con éxito!', {
+      idReserva,
       idHorario,
       fechaReserva
     }, 201);
@@ -331,7 +334,8 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
       'Reserva cancelada',
       devuelveCredito
         ? 'Tu reserva fue cancelada y el crédito fue devuelto a tu cuenta.'
-        : 'Tu reserva fue cancelada fuera de término. El crédito no fue reintegrado (menos de 2hs de anticipación).'
+        : 'Tu reserva fue cancelada fuera de término. El crédito no fue reintegrado (menos de 2hs de anticipación).',
+      '/alumno/reservas'
     );
 
     return successResponse(res, 'Reserva cancelada correctamente.', {

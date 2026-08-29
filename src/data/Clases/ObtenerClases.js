@@ -15,10 +15,11 @@ const obtenerClases = `
     MIN(h.horaFin) AS horaFin,
     MIN(h.turno) AS turno,
 
-    GROUP_CONCAT(h.dia ORDER BY 
+    GROUP_CONCAT(h.dia ORDER BY
       FIELD(h.dia, 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO')
       SEPARATOR ','
-    ) AS diasSemana
+    ) AS diasSemana,
+    MIN(h.fechaEspecifica) AS fechaEspecifica
 
   FROM diaclase c
   LEFT JOIN profesor p ON c.idProfesor = p.idProfesor

@@ -146,18 +146,22 @@ exports.insert = asyncHandler(async (req, res) => {
     idProfesor,
     idPlan,
     diasSemana,
+    fechaEspecifica,
     horaInicio,
     horaFin,
     turno,
-    rutina
+    rutina,
+    fechaPublicacion,
   } = req.body;
 
   if (!nombreClase || !tipoClase || !cupoMaximo || !cupoDisponible || !estado || !idProfesor) {
     return errorResponse(res, 'Todos los campos de la clase son obligatorios', 400);
   }
 
-  if (!diasSemana || !Array.isArray(diasSemana) || diasSemana.length === 0) {
-    return errorResponse(res, 'Debe seleccionar al menos un día para la clase', 400);
+  const esUnica = !!fechaEspecifica;
+
+  if (!esUnica && (!diasSemana || !Array.isArray(diasSemana) || diasSemana.length === 0)) {
+    return errorResponse(res, 'Debe seleccionar al menos un día o una fecha específica', 400);
   }
 
   if (!horaInicio || !horaFin || !turno) {
@@ -172,19 +176,20 @@ exports.insert = asyncHandler(async (req, res) => {
     estado,
     null,
     idProfesor,
-    idPlan || null
+    idPlan || null,
+    fechaPublicacion || null,
   ]);
 
   const idClase = result.insertId;
 
-  for (const dia of diasSemana) {
-    await db.query(insertarHorarioClase, [
-      dia,
-      horaInicio,
-      horaFin,
-      turno,
-      idClase
-    ]);
+  if (esUnica) {
+    // Clase única: almacenamos el día de semana en 'dia' y la fecha exacta en 'fechaEspecifica'
+    const diaSemana = ['DOMINGO','LUNES','MARTES','MIERCOLES','JUEVES','VIERNES','SABADO'][new Date(fechaEspecifica + 'T00:00:00').getDay()];
+    await db.query(insertarHorarioClase, [diaSemana, horaInicio, horaFin, turno, idClase, fechaEspecifica]);
+  } else {
+    for (const dia of diasSemana) {
+      await db.query(insertarHorarioClase, [dia, horaInicio, horaFin, turno, idClase, null]);
+    }
   }
 
   await guardarRutinaDeClase(idClase, idProfesor, nombreClase, rutina);
@@ -193,10 +198,12 @@ exports.insert = asyncHandler(async (req, res) => {
   if (idUsuarioProfesor) {
     crearNotificacion(idUsuarioProfesor, 'sistema',
       'Nueva clase asignada',
-      `Se te asignó la clase "${nombreClase}" (${tipoClase}). Ya aparece en tu panel de asistencia.`
+      `Se te asignó la clase "${nombreClase}" (${tipoClase}). Ya aparece en tu panel de asistencia.`,
+      '/profesor/rutinas'
     );
   }
-  crearNotificacionAdmins('sistema', 'Clase creada', `Se creó la clase "${nombreClase}" con ${diasSemana.length} horario(s).`);
+  const cantHorarios = esUnica ? 1 : diasSemana.length;
+  crearNotificacionAdmins('sistema', 'Clase creada', `Se creó la clase "${nombreClase}" con ${cantHorarios} horario(s).`, '/admin/clases');
 
   return successResponse(res, 'Clase creada correctamente con sus horarios', {
     idClase,
@@ -207,12 +214,11 @@ exports.insert = asyncHandler(async (req, res) => {
     estado,
     idGimnasio: null,
     idProfesor,
-    horarios: diasSemana.map((dia) => ({
-      dia,
-      horaInicio,
-      horaFin,
-      turno
-    }))
+    esUnica,
+    fechaEspecifica: fechaEspecifica || null,
+    horarios: esUnica
+      ? [{ dia: ['DOMINGO','LUNES','MARTES','MIERCOLES','JUEVES','VIERNES','SABADO'][new Date(fechaEspecifica + 'T00:00:00').getDay()], horaInicio, horaFin, turno, fechaEspecifica }]
+      : diasSemana.map((dia) => ({ dia, horaInicio, horaFin, turno }))
   }, 201);
 });
 
@@ -234,7 +240,8 @@ exports.update = asyncHandler(async (req, res) => {
     horaInicio,
     horaFin,
     turno,
-    rutina
+    rutina,
+    fechaPublicacion
   } = req.body;
 
   if (!nombreClase || !tipoClase || !cupoMaximo || !cupoDisponible || !estado || !idProfesor) {
@@ -264,6 +271,7 @@ exports.update = asyncHandler(async (req, res) => {
     null,
     idProfesor,
     idPlan || null,
+    fechaPublicacion || null,
     id
   ]);
 
@@ -349,13 +357,15 @@ exports.updateEstado = asyncHandler(async (req, res) => {
   if (idUsuarioProfesor) {
     crearNotificacion(idUsuarioProfesor, 'sistema',
       'Estado de clase actualizado',
-      `La clase "${claseInfo.nombreClase}" cambió su estado a "${estado}".`
+      `La clase "${claseInfo.nombreClase}" cambió su estado a "${estado}".`,
+      '/profesor/rutinas'
     );
   }
   if (estado === 'Inactivo' || estado === 'Cancelado') {
     notificarAlumnosDeClase(Number(id), 'sistema',
       'Clase cancelada',
-      `La clase "${claseInfo.nombreClase}" fue cancelada. Contactá con el box para más información.`
+      `La clase "${claseInfo.nombreClase}" fue cancelada. Contactá con el box para más información.`,
+      '/alumno/reservas'
     );
   }
 
@@ -383,13 +393,15 @@ exports.delete = asyncHandler(async (req, res) => {
   // Notificar alumnos con reservas activas ANTES de eliminar
   await notificarAlumnosDeClase(Number(id), 'sistema',
     'Clase eliminada',
-    `La clase "${claseAEliminar.nombreClase}" fue eliminada del sistema. Tus reservas asociadas fueron canceladas.`
+    `La clase "${claseAEliminar.nombreClase}" fue eliminada del sistema. Tus reservas asociadas fueron canceladas.`,
+    '/alumno/reservas'
   );
   const idUsuarioProfesor = await getIdUsuarioPorProfesor(claseAEliminar.idProfesor);
   if (idUsuarioProfesor) {
     crearNotificacion(idUsuarioProfesor, 'sistema',
       'Clase eliminada',
-      `La clase "${claseAEliminar.nombreClase}" fue eliminada del sistema.`
+      `La clase "${claseAEliminar.nombreClase}" fue eliminada del sistema.`,
+      '/profesor/rutinas'
     );
   }
 

@@ -4,9 +4,10 @@ const insertarHorarioClase = `
     horaInicio,
     horaFin,
     turno,
-    idClase
+    idClase,
+    fechaEspecifica
   )
-  VALUES (?, ?, ?, ?, ?)
+  VALUES (?, ?, ?, ?, ?, ?)
 `;
 
 module.exports = insertarHorarioClase;

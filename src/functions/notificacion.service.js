@@ -4,11 +4,11 @@ const db = require('../config/db');
  * Crea una notificación para un usuario específico.
  * Falla silenciosamente para no romper el flujo principal.
  */
-async function crearNotificacion(idUsuario, tipo, titulo, mensaje) {
+async function crearNotificacion(idUsuario, tipo, titulo, mensaje, link = null) {
   try {
     await db.query(
-      'INSERT INTO notificacion (idUsuario, tipo, titulo, mensaje) VALUES (?, ?, ?, ?)',
-      [idUsuario, tipo, titulo, mensaje]
+      'INSERT INTO notificacion (idUsuario, tipo, titulo, mensaje, link) VALUES (?, ?, ?, ?, ?)',
+      [idUsuario, tipo, titulo, mensaje, link]
     );
   } catch (err) {
     console.error('Error al crear notificación:', err.message);
@@ -18,13 +18,13 @@ async function crearNotificacion(idUsuario, tipo, titulo, mensaje) {
 /**
  * Crea una notificación para todos los administradores (idPerfil = 1).
  */
-async function crearNotificacionAdmins(tipo, titulo, mensaje) {
+async function crearNotificacionAdmins(tipo, titulo, mensaje, link = null) {
   try {
     const [admins] = await db.query(
       "SELECT u.idUsuario FROM usuario u WHERE u.idPerfil = 1 AND u.estado = 'activo'"
     );
     for (const admin of admins) {
-      await crearNotificacion(admin.idUsuario, tipo, titulo, mensaje);
+      await crearNotificacion(admin.idUsuario, tipo, titulo, mensaje, link);
     }
   } catch (err) {
     console.error('Error al notificar admins:', err.message);
@@ -75,7 +75,7 @@ async function getIdUsuarioPorProfesor(idProfesor) {
 /**
  * Notifica a todos los alumnos con reservas activas en una clase.
  */
-async function notificarAlumnosDeClase(idClase, tipo, titulo, mensaje) {
+async function notificarAlumnosDeClase(idClase, tipo, titulo, mensaje, link = null) {
   try {
     const [rows] = await db.query(
       `SELECT DISTINCT u.idUsuario FROM reserva r
@@ -86,7 +86,7 @@ async function notificarAlumnosDeClase(idClase, tipo, titulo, mensaje) {
       [idClase]
     );
     for (const row of rows) {
-      await crearNotificacion(row.idUsuario, tipo, titulo, mensaje);
+      await crearNotificacion(row.idUsuario, tipo, titulo, mensaje, link);
     }
   } catch (err) {
     console.error('Error al notificar alumnos de clase:', err.message);
@@ -104,11 +104,16 @@ async function crearTablaNotificacion() {
       tipo VARCHAR(50) NOT NULL,
       titulo VARCHAR(150) NOT NULL,
       mensaje TEXT NOT NULL,
+      link VARCHAR(255) NULL,
       leida TINYINT(1) DEFAULT 0,
       creadoEn DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (idUsuario) REFERENCES usuario(idUsuario) ON DELETE CASCADE
     )
   `);
+  // Agregar columna si la tabla ya existía sin ella
+  try {
+    await db.query(`ALTER TABLE notificacion ADD COLUMN link VARCHAR(255) NULL AFTER mensaje`);
+  } catch { /* columna ya existe */ }
 }
 
 module.exports = {

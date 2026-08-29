@@ -9,6 +9,7 @@ const obtenerClasePorId = `
     c.idGimnasio,
     c.idProfesor,
     c.idPlan,
+    DATE_FORMAT(c.fechaPublicacion, '%Y-%m-%dT%H:%i:%s') AS fechaPublicacion,
     p2.nombre AS nombrePlan,
 
     per.nombrecompleto AS nombreProfesor,
@@ -41,6 +42,7 @@ const obtenerClasePorId = `
     c.idGimnasio,
     c.idProfesor,
     c.idPlan,
+    c.fechaPublicacion,
     p2.nombre,
     per.nombrecompleto
 `;

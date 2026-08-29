@@ -12,6 +12,19 @@ const { successResponse, errorResponse } = require('../utils/response');
 const { hashPassword } = require('../functions/encryption');
 
 /**
+ * Sanitiza un string de fecha a 'YYYY-MM-DD'. Retorna null si la fecha
+ * es inválida o el año está fuera del rango razonable (2000-2100).
+ */
+const sanitizarFecha = (valor) => {
+  if (!valor) return null;
+  const d = new Date(valor);
+  if (isNaN(d.getTime())) return null;
+  const anio = d.getFullYear();
+  if (anio < 2000 || anio > 2100) return null;
+  return d.toISOString().split('T')[0];
+};
+
+/**
  * 🟢 HELPER INTERNO: Sincroniza de forma automática la tabla "profesor"
  * basándose en los permisos reales de su perfil asignado en la tabla "perfilpermiso"
  */
@@ -179,7 +192,8 @@ exports.create = asyncHandler(async (req, res) => {
 
     crearNotificacionAdmins('sistema',
       'Nuevo usuario registrado',
-      `Se registró un nuevo usuario: ${nombrecompleto} (${correo}).`
+      `Se registró un nuevo usuario: ${nombrecompleto} (${correo}).`,
+      '/admin/usuarios'
     );
     crearNotificacion(usuarioResult.insertId, 'sistema',
       '¡Bienvenido a Bravos Box!',
@@ -576,7 +590,8 @@ exports.createAbonoUsuario = asyncHandler(async (req, res) => {
 
   crearNotificacion(Number(id), 'credito',
     'Membresía activada',
-    `Se cargó el plan "${tipoAbono}" con ${plan.cantidadCreditos} créditos. Vence el ${vencimientoReal}.`
+    `Se cargó el plan "${tipoAbono}" con ${plan.cantidadCreditos} créditos. Vence el ${vencimientoReal}.`,
+    '/alumno/creditos'
   );
 
   return successResponse(res, 'Abono cargado y Alumno inicializado correctamente', null, 201);
@@ -597,7 +612,7 @@ exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
   // Forzamos que el estado vaya en Mayúsculas limpias ('ACTIVO', 'CANCELADO') como tus inserts nativos
   const estadoFormateado = String(estado || 'ACTIVO').toUpperCase().trim();
 
-  const totalCreditos = Number(turnos) + Number(ajuste || 0);
+  const totalCreditos = Number(turnos ?? 0) + Number(ajuste ?? 0);
 
   // 1. Buscamos el estado actual del abono antes de sobreescribir
   const [creditoExistente] = await db.query(
@@ -633,11 +648,11 @@ exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
          estado = ?
      WHERE idCredito = ?`,
     [
-      fechaInicio,
-      fechaVencimiento,
+      sanitizarFecha(fechaInicio),
+      sanitizarFecha(fechaVencimiento),
       totalCreditos,
       disponibles,
-      estadoFormateado, // 'ACTIVO' o 'CANCELADO'
+      estadoFormateado,
       idCreditoReal,
     ]
   );
@@ -648,7 +663,8 @@ exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
       'Membresía actualizada',
       estadoFormateado === 'CANCELADO'
         ? 'Tu membresía fue marcada como cancelada. Contactá con el box para más información.'
-        : `Tu membresía fue actualizada: ${totalCreditos} créditos en total, vence el ${fechaVencimiento}.`
+        : `Tu membresía fue actualizada: ${totalCreditos} créditos en total, vence el ${fechaVencimiento}.`,
+      '/alumno/creditos'
     );
   }
 
@@ -680,7 +696,8 @@ exports.cancelarAbonoUsuario = asyncHandler(async (req, res) => {
   if (idUsuarioAlumno) {
     crearNotificacion(idUsuarioAlumno, 'credito',
       'Membresía cancelada',
-      'Tu membresía fue cancelada por un administrador. Tus créditos disponibles fueron puestos en cero. Contactá con el box.'
+      'Tu membresía fue cancelada por un administrador. Tus créditos disponibles fueron puestos en cero. Contactá con el box.',
+      '/alumno/creditos'
     );
   }
 
