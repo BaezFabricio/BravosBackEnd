@@ -8,6 +8,7 @@ const { releaseOccupiedPort } = require('./utils/releaseOccupiedPort');
 const crearTablaAvatarUsuario = require('./data/Avatar/CrearTablaAvatarUsuario');
 const { crearTablaNotificacion } = require('./functions/notificacion.service');
 const { iniciarCronPublicacion } = require('./functions/publicacionCron');
+const { iniciarCronMembresias } = require('./functions/membresiasCron');
 
 const logger = new Logger('Server');
 
@@ -36,16 +37,35 @@ async function startServer() {
       await db.query(crearTablaAvatarUsuario);
       await crearTablaNotificacion();
       // Migraciones independientes — fallan silenciosamente si la columna ya existe
+      // Tabla de documentos de alumnos
+      try {
+        await db.query(`
+          CREATE TABLE IF NOT EXISTS documento_alumno (
+            idDocumento INT AUTO_INCREMENT PRIMARY KEY,
+            idPersona INT NOT NULL,
+            tipo ENUM('comprobante_transferencia','certificado_medico','declaracion_jurada') NOT NULL,
+            nombreArchivo VARCHAR(255) NOT NULL,
+            urlArchivo VARCHAR(500) NOT NULL,
+            estado ENUM('pendiente','aprobado') DEFAULT 'pendiente',
+            creadoEn DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (idPersona) REFERENCES persona(idPersona) ON DELETE CASCADE
+          )
+        `);
+      } catch {}
+
       const migraciones = [
         `ALTER TABLE reserva ADD COLUMN creadoEn DATETIME DEFAULT CURRENT_TIMESTAMP`,
         `ALTER TABLE diaclase ADD COLUMN fechaPublicacion DATETIME NULL`,
         `ALTER TABLE diaclase ADD COLUMN emailEnviado TINYINT DEFAULT 0`,
+        `ALTER TABLE documento_alumno ADD COLUMN estado ENUM('pendiente','aprobado') DEFAULT 'pendiente'`,
+        `ALTER TABLE usuario ADD COLUMN activadoManualEn DATETIME NULL`,
       ];
       for (const sql of migraciones) {
         try { await db.query(sql); } catch { /* columna ya existe */ }
       }
 
       iniciarCronPublicacion();
+      iniciarCronMembresias();
     } catch (dbError) {
       if (requireDbOnStartup) {
         throw dbError;

@@ -158,8 +158,61 @@ const sendClaseDisponibleEmail = async (email, nombre, clase) => {
   }
 };
 
+/**
+ * Aviso de membresía por vencer — se envía entre el 1 y el 9 del mes
+ */
+const sendMembresiaPorVencerEmail = async (email, nombre, diasRestantes) => {
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+
+  const mailOptions = {
+    from: `"Bravos Box 🏋️‍♂️" <${process.env.SMTP_USER}>`,
+    to: email,
+    subject: `⚠️ Tu membresía vence el 10 — renovála antes de quedar inactivo`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e0e0e0; overflow: hidden;">
+        <div style="background: #111111; padding: 28px 32px; text-align: center;">
+          <p style="color: #a3e635; font-size: 11px; font-weight: 900; letter-spacing: 3px; text-transform: uppercase; margin: 0 0 8px 0;">Bravos Box</p>
+          <h1 style="color: #ffffff; font-size: 24px; font-weight: 900; text-transform: uppercase; margin: 0; letter-spacing: 1px;">Renová tu membresía</h1>
+        </div>
+
+        <div style="padding: 32px;">
+          <p style="font-size: 16px; color: #333; margin: 0 0 16px 0;">Hola <strong>${nombre}</strong>,</p>
+          <p style="font-size: 15px; color: #555; line-height: 1.6; margin: 0 0 24px 0;">
+            Te recordamos que la fecha límite de pago es el <strong style="color: #111;">día 10 de cada mes</strong>.
+            ${diasRestantes !== null ? `Te quedan <strong>${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}</strong> para renovar.` : 'El plazo vence pronto.'}
+          </p>
+
+          <div style="background: #fff8e1; border-left: 4px solid #f59e0b; padding: 16px 20px; margin-bottom: 28px;">
+            <p style="margin: 0; font-size: 14px; color: #78350f; line-height: 1.5;">
+              Si no abonás antes del día 10, tu cuenta quedará <strong>suspendida</strong> y no podrás reservar clases.
+            </p>
+          </div>
+
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${frontendUrl}/alumno/creditos" style="background-color: #a3e635; color: #000; padding: 14px 40px; text-decoration: none; font-size: 14px; font-weight: 900; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">
+              Ver mi membresía →
+            </a>
+          </div>
+        </div>
+
+        <div style="background: #f5f5f5; padding: 16px 32px; text-align: center;">
+          <p style="font-size: 11px; color: #999; margin: 0;">Este correo fue generado automáticamente por Bravos Box. No respondas este mensaje.</p>
+        </div>
+      </div>
+    `
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`[Email] Aviso membresía enviado a: ${email}`);
+  } catch (error) {
+    console.error(`[Email Error] Aviso membresía a ${email}:`, error.message);
+  }
+};
+
 module.exports = {
   sendVerificationEmail,
   sendRecoveryEmail,
   sendClaseDisponibleEmail,
+  sendMembresiaPorVencerEmail,
 };

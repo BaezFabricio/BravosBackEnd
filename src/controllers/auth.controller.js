@@ -144,6 +144,13 @@ exports.login = asyncHandler(async (req, res) => {
   const [checkUser] = await db.query('SELECT estado FROM usuario WHERE idUsuario = ?', [usuario.idUsuario]);
   const estadoReal = checkUser[0]?.estado || usuario.estado || 'activo';
 
+  if (estadoReal === 'inactivo') {
+    return res.status(403).json({
+      message: 'Tu cuenta está inactiva por falta de pago. Aboná tu membresía para volver a acceder.',
+      code: 'CUENTA_INACTIVA',
+    });
+  }
+
   // 2. 🟢 BUSCAMOS LOS PERMISOS REALES EN TU TABLA INTERMEDIA
   const sqlPermisos = `
     SELECT p.modulo, p.accion 

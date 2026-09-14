@@ -280,7 +280,17 @@ exports.cambiarEstado = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Usuario no encontrado', 'USER_NOT_FOUND', 404);
   }
 
-  await db.query(actualizarEstadoUsuario, [estado, id]);
+  if (estado === 'activo') {
+    await db.query(
+      `UPDATE usuario SET estado = ?, activadoManualEn = NOW() WHERE idUsuario = ?`,
+      [estado, id]
+    );
+  } else {
+    await db.query(
+      `UPDATE usuario SET estado = ?, activadoManualEn = NULL WHERE idUsuario = ?`,
+      [estado, id]
+    );
+  }
   const [usuarioActualizado] = await db.query(obtenerUsuarioPorId, [id]);
 
   crearNotificacion(Number(id), 'sistema',
@@ -588,6 +598,9 @@ exports.createAbonoUsuario = asyncHandler(async (req, res) => {
     ]
   );
 
+  // Limpiar protección manual para que el cron vuelva a gestionar al usuario
+  await db.query(`UPDATE usuario SET activadoManualEn = NULL WHERE idUsuario = ?`, [id]);
+
   crearNotificacion(Number(id), 'credito',
     'Membresía activada',
     `Se cargó el plan "${tipoAbono}" con ${plan.cantidadCreditos} créditos. Vence el ${vencimientoReal}.`,
@@ -702,6 +715,40 @@ exports.cancelarAbonoUsuario = asyncHandler(async (req, res) => {
   }
 
   return successResponse(res, 'Abono cancelado correctamente');
+});
+
+exports.aprobarAbono = asyncHandler(async (req, res) => {
+  const { idAbono } = req.params;
+
+  const [rows] = await db.query(
+    `SELECT idCredito, idAlumno FROM credito WHERE idCredito = ?`,
+    [idAbono]
+  );
+  if (!rows.length) return errorResponse(res, 'Abono no encontrado', 'ABONO_NOT_FOUND', 404);
+
+  await db.query(
+    `UPDATE credito SET estado = 'ACTIVO' WHERE idCredito = ?`,
+    [idAbono]
+  );
+
+  // Notificar al alumno
+  try {
+    const [alumnoRows] = await db.query(
+      `SELECT u.idUsuario FROM usuario u JOIN alumno a ON u.idPersona = a.idPersona WHERE a.idAlumno = ?`,
+      [rows[0].idAlumno]
+    );
+    if (alumnoRows.length) {
+      crearNotificacion(
+        alumnoRows[0].idUsuario,
+        'credito',
+        'Membresía activada',
+        'Tu abono fue aprobado por el administrador. Ya podés reservar clases.',
+        '/alumno/creditos'
+      );
+    }
+  } catch {}
+
+  return successResponse(res, 'Abono aprobado correctamente');
 });
 
 // Exportación centralizada limpia

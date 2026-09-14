@@ -49,6 +49,13 @@ router.delete(
   usuariosController.cancelarAbonoUsuario
 );
 
+router.put(
+  '/abonos/:idAbono/aprobar',
+  authenticateToken,
+  requirePermission('Usuarios', 'modificacion'),
+  usuariosController.aprobarAbono
+);
+
 /**
  * GET /api/usuarios/:id
  * Obtiene un usuario específico
