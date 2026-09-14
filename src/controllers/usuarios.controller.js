@@ -71,8 +71,9 @@ exports.getAll = asyncHandler(async (req, res) => {
       ua.url AS avatarUrl,
       -- 🟢 CRÉDITOS REALES: Suma de turnos disponibles activos
       IFNULL(SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() THEN c.creditosCisponibles ELSE 0 END), 0) AS creditos,
-      -- 🟢 MEMBRESÍA DINÁMICA: Si tiene créditos disponibles y no vencieron, está ACTIVA. Sino, VENCIDA.
+      -- 🟢 MEMBRESÍA DINÁMICA: activa, por_vencer (≤3 días) o vencida
       CASE
+        WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND c.fechaVencimiento <= DATE_ADD(CURDATE(), INTERVAL 3 DAY) AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'por_vencer'
         WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'activa'
         ELSE 'vencida'
       END AS membresia
@@ -129,7 +130,8 @@ exports.getById = asyncHandler(async (req, res) => {
   const metricsSql = `
     SELECT 
       IFNULL(SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() THEN c.creditosCisponibles ELSE 0 END), 0) AS creditosCalculados,
-      CASE 
+      CASE
+        WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND c.fechaVencimiento <= DATE_ADD(CURDATE(), INTERVAL 3 DAY) AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'por_vencer'
         WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'activa'
         ELSE 'vencida'
       END AS membresiaCalculada

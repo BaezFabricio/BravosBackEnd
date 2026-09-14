@@ -52,8 +52,7 @@ async function procesarMembresias() {
       JOIN persona p ON p.idPersona = u.idPersona
       LEFT JOIN alumno a ON a.idPersona = u.idPersona
       WHERE u.estado = 'activo'
-        AND (u.activadoManualEn IS NULL OR u.activadoManualEn < DATE_SUB(NOW(), INTERVAL 30 DAY))
-        AND DAYOFMONTH(CURDATE()) > 10
+        AND (u.activadoManualEn IS NULL OR u.activadoManualEn < DATE_SUB(NOW(), INTERVAL 60 DAY))
         AND NOT EXISTS (
           SELECT 1 FROM credito c
           WHERE c.idAlumno = a.idAlumno
@@ -61,20 +60,20 @@ async function procesarMembresias() {
             AND c.fechaVencimiento >= CURDATE()
         )
         AND (
-          -- Nunca pagaron y se registraron hace más de 30 días
+          -- Nunca pagaron y se registraron hace más de 60 días
           (
             a.idAlumno IS NOT NULL
             AND NOT EXISTS (SELECT 1 FROM pago pg WHERE pg.idAlumno = a.idAlumno)
-            AND COALESCE(a.fechaAlta, p.fecha_registro) < DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            AND COALESCE(a.fechaAlta, p.fecha_registro) < DATE_SUB(CURDATE(), INTERVAL 60 DAY)
           )
           OR
-          -- Pagaron pero el último crédito venció hace más de 30 días
+          -- Pagaron pero el último crédito venció hace más de 60 días
           (
             a.idAlumno IS NOT NULL
             AND EXISTS (SELECT 1 FROM pago pg WHERE pg.idAlumno = a.idAlumno)
             AND (
               SELECT MAX(c2.fechaVencimiento) FROM credito c2 WHERE c2.idAlumno = a.idAlumno
-            ) < DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            ) < DATE_SUB(CURDATE(), INTERVAL 60 DAY)
           )
         )
     `);
