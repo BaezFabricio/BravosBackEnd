@@ -146,7 +146,7 @@ exports.login = asyncHandler(async (req, res) => {
 
   if (estadoReal === 'inactivo') {
     return res.status(403).json({
-      message: 'Tu cuenta está inactiva por falta de pago. Aboná tu membresía para volver a acceder.',
+      message: 'Tu cuenta está desactivada. Contactá al administrador del gimnasio para reactivarla.',
       code: 'CUENTA_INACTIVA',
     });
   }
