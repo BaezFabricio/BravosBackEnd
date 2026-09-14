@@ -437,6 +437,7 @@ exports.getAbonosByUsuario = asyncHandler(async (req, res) => {
       c.creditosUtilizados AS usados,
       c.creditosCisponibles AS disponibles,
       c.estado,
+      p.formaPago AS metodoPago,
       pPers.nombrecompleto AS operadorReal
      FROM credito c
      INNER JOIN pago p ON c.idPago = p.idPago
@@ -467,6 +468,7 @@ exports.getAllAbonos = asyncHandler(async (req, res) => {
       c.creditosUtilizados AS usados,
       c.creditosCisponibles AS disponibles,
       c.estado,
+      p.formaPago AS metodoPago,
       pPers.nombrecompleto AS operadorReal
      FROM credito c
      INNER JOIN pago p ON c.idPago = p.idPago
