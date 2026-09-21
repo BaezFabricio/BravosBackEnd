@@ -109,18 +109,10 @@ exports.getRutinaPorClase = asyncHandler(async (req, res) => {
     return successResponse(res, 'La clase no tiene rutina asignada.', null);
   }
 
-  const [ejerciciosRaw] = await db.query(
+  const [ejercicios] = await db.query(
     'SELECT idEjercicio, nombre, videoUrl, orden FROM ejercicio WHERE idRutina = ? ORDER BY orden ASC',
     [rutinaRows[0].idRutina]
   );
-
-  const ejercicios = await Promise.all(ejerciciosRaw.map(async (ej) => {
-    const [variantes] = await db.query(
-      'SELECT idVariante, nombre, descripcion, videoUrl, limitacion FROM variante WHERE idEjercicio = ? ORDER BY idVariante ASC',
-      [ej.idEjercicio]
-    );
-    return { ...ej, variantes };
-  }));
 
   return successResponse(res, 'Rutina recuperada correctamente', { ...rutinaRows[0], ejercicios });
 });
