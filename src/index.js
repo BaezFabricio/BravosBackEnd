@@ -53,6 +53,21 @@ async function startServer() {
         `);
       } catch {}
 
+      // Tabla de variantes de ejercicios
+      try {
+        await db.query(`
+          CREATE TABLE IF NOT EXISTS variante (
+            idVariante INT AUTO_INCREMENT PRIMARY KEY,
+            idEjercicio INT NOT NULL,
+            nombre VARCHAR(255) NOT NULL,
+            descripcion TEXT,
+            videoUrl VARCHAR(500),
+            limitacion VARCHAR(255),
+            FOREIGN KEY (idEjercicio) REFERENCES ejercicio(idEjercicio) ON DELETE CASCADE
+          )
+        `);
+      } catch {}
+
       const migraciones = [
         `ALTER TABLE reserva ADD COLUMN creadoEn DATETIME DEFAULT CURRENT_TIMESTAMP`,
         `ALTER TABLE diaclase ADD COLUMN fechaPublicacion DATETIME NULL`,
