@@ -115,10 +115,18 @@ exports.getById = asyncHandler(async (req, res) => {
     [id]
   );
 
-  const [ejercicios] = await db.query(
+  const [ejerciciosRaw] = await db.query(
     'SELECT idEjercicio, nombre, videoUrl, orden FROM ejercicio WHERE idRutina = ? ORDER BY orden ASC',
     [id]
   );
+
+  const ejercicios = await Promise.all(ejerciciosRaw.map(async (ej) => {
+    const [variantes] = await db.query(
+      'SELECT idVariante, nombre, descripcion, videoUrl, limitacion FROM variante WHERE idEjercicio = ? ORDER BY idVariante ASC',
+      [ej.idEjercicio]
+    );
+    return { ...ej, variantes };
+  }));
 
   let nombreClase = null;
   if (rutina.idClase) {
