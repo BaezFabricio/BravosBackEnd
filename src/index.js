@@ -59,6 +59,8 @@ async function startServer() {
         `ALTER TABLE diaclase ADD COLUMN emailEnviado TINYINT DEFAULT 0`,
         `ALTER TABLE documento_alumno ADD COLUMN estado ENUM('pendiente','aprobado') DEFAULT 'pendiente'`,
         `ALTER TABLE usuario ADD COLUMN activadoManualEn DATETIME NULL`,
+        `ALTER TABLE pago ADD COLUMN referenciaExterna VARCHAR(100) NULL`,
+        `ALTER TABLE pago MODIFY COLUMN idUsuarioOperador INT NULL`,
       ];
       for (const sql of migraciones) {
         try { await db.query(sql); } catch { /* columna ya existe */ }

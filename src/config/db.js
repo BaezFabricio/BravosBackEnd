@@ -19,6 +19,16 @@ async function initializePool() {
       queueLimit: envConfig.db.queueLimit,
     });
 
+    // El servidor de MySQL corre en un huso horario distinto a Argentina (por
+    // ejemplo UTC). Sin esto, CURDATE()/NOW() del lado del servidor no coinciden
+    // con "hoy" real, y toda consulta que compare contra CURDATE() falla de noche.
+    // La opción `timezone` del driver NO alcanza para esto: solo afecta cómo se
+    // parsean fechas del lado del cliente, no lo que MySQL calcula internamente.
+    // Hace falta fijarlo con SET en cada conexión física que abre el pool.
+    pool.on('connection', (connection) => {
+      connection.query("SET time_zone = '-03:00'");
+    });
+
     console.log('✓ Pool de conexiones MySQL creado exitosamente');
     return pool;
   } catch (error) {

@@ -12,8 +12,18 @@ exports.getMetrics = asyncHandler(async (req, res) => {
     const [activeUsersRows] = await db.query("SELECT COUNT(*) AS activos FROM alumno WHERE estado = 'activo'");
     const usuariosActivos = activeUsersRows[0]?.activos || 0;
 
-    // 3 y 5. Alumnos suspendidos por falta de pago: no tienen ningún crédito vigente
-    // (activo, con saldo disponible y sin vencer) y no están dados de baja manualmente.
+    // 3. Tarjeta: Ingresos del mes calendario actual (pagos confirmados)
+    const [ingresosRows] = await db.query(`
+      SELECT COALESCE(SUM(importe), 0) AS total
+      FROM pago
+      WHERE estadoPago = 'confirmado'
+        AND fechaPago >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+        AND fechaPago < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)
+    `);
+    const ingresosMes = Number(ingresosRows[0]?.total || 0);
+
+    // 5. Alumnos sin pago vigente: no tienen ningún crédito activo, con saldo
+    // disponible y sin vencer, y no están dados de baja manualmente.
     const [suspendedListRows] = await db.query(`
       SELECT
         p.dni,
@@ -37,7 +47,6 @@ exports.getMetrics = asyncHandler(async (req, res) => {
         )
       ORDER BY daysOverdue DESC
     `);
-    const suspendidosCount = suspendedListRows.length;
 
     // 4. Tarjeta: Membresías (créditos activos) que vencen en los próximos 7 días
     const [porVencerRows] = await db.query(`
@@ -110,7 +119,7 @@ exports.getMetrics = asyncHandler(async (req, res) => {
       tarjetas: {
         totalUsuarios,
         usuariosActivos,
-        suspendidos: suspendidosCount,
+        ingresosMes,
         membresiasPorVencer
       },
       suspendedUsers: suspendedListRows,
