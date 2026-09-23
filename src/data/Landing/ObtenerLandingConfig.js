@@ -37,6 +37,12 @@ const ObtenerLandingConfig = async () => {
       horario_sabado: 'Sábado: 8:00 - 14:00',
       horario_domingo: 'Domingo: Cerrado',
       mapaUrl: '',
+      // Datos bancarios para transferencia
+      bancoEntidad: '',
+      titularCuenta: '',
+      cuitTransferencia: '',
+      cvuTransferencia: '',
+      aliasTransferencia: '',
     };
 
     filasTexto.forEach(({ clave, valor }) => {

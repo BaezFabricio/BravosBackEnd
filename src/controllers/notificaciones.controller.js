@@ -7,6 +7,11 @@ const { successResponse, errorResponse } = require('../utils/response');
  * Devuelve las notificaciones del usuario autenticado (máx 50, más recientes primero).
  */
 exports.getMias = asyncHandler(async (req, res) => {
+  // Este endpoint se consulta por polling cada 30s; sin esto el navegador
+  // puede servir una respuesta vieja cacheada (visible como 304 en Network)
+  // en vez de ir a buscar notificaciones nuevas al servidor.
+  res.set('Cache-Control', 'no-store')
+
   const idUsuario = req.user.idUsuario;
 
   const [rows] = await db.query(

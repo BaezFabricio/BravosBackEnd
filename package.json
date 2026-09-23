@@ -26,6 +26,7 @@
     "express-validator": "^7.0.0",
     "graphifyy": "^0.10.0",
     "jsonwebtoken": "^9.0.2",
+    "mercadopago": "^3.6.1",
     "multer": "^2.1.1",
     "mysql2": "^3.6.0",
     "nodemailer": "^8.0.7"

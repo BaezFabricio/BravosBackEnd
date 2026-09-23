@@ -357,6 +357,11 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
 });
 
 exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
+  // Se consulta por polling cada 8s desde CreditosPage; sin esto el navegador
+  // puede servir una respuesta vieja cacheada (304 en Network) en vez de traer
+  // los créditos actualizados del servidor.
+  res.set('Cache-Control', 'no-store')
+
   const idUsuarioLogueado = req.user.idUsuario;
 
   if (!idUsuarioLogueado) {

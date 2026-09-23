@@ -14,6 +14,7 @@ const reportesRoutes = require('./reportes.routes');
 const ejerciciosRoutes = require('./ejercicios.routes');
 const notificacionesRoutes = require('./notificaciones.routes');
 const documentosRoutes = require('./documentos.routes');
+const pagosRoutes = require('./pagos.routes');
 
 const router = Router();
 
@@ -30,5 +31,6 @@ router.use('/planes', planesRoutes);
 router.use('/reportes', reportesRoutes);
 router.use('/ejercicios', ejerciciosRoutes);
 router.use('/documentos', documentosRoutes);
+router.use('/pagos', pagosRoutes);
 
 module.exports = router;
