@@ -12,6 +12,9 @@ router.post('/procesar-tarjeta', authenticateToken, pagosCtrl.procesarTarjeta)
 // afuera del navegador (QR pagado desde otro dispositivo, Mercado Crédito).
 router.get('/estado/:idPlan', authenticateToken, pagosCtrl.estadoPago)
 
+// Plan(es) vigentes del alumno, para el dashboard y la pantalla de pagos.
+router.get('/mi-plan', authenticateToken, pagosCtrl.miPlan)
+
 // MP llama sin auth — no usar authenticateToken aquí
 router.post('/webhook', pagosCtrl.webhook)
 
