@@ -383,12 +383,23 @@ exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
     INNER JOIN pago p ON c.idPago = p.idPago
     INNER JOIN plan pl ON p.idPlan = pl.idPlan
     WHERE u.idUsuario = ? AND c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE()
-    ORDER BY c.fechaVencimiento DESC LIMIT 1
+    ORDER BY c.fechaVencimiento ASC
   `;
   const [abonoRows] = await db.query(sqlAbono, [idUsuarioLogueado]);
-  
+
+  // Cada compra tiene su propio crédito con su propio vencimiento: si el alumno
+  // contrató más de un plan, los créditos se suman y cada bloque deja de contar
+  // cuando vence el suyo (la consulta ya filtra los vencidos).
+  const abonoSumado = abonoRows.length === 0 ? null : {
+    totalCreditos: abonoRows.reduce((a, r) => a + Number(r.totalCreditos), 0),
+    creditosCisponibles: abonoRows.reduce((a, r) => a + Number(r.creditosCisponibles), 0),
+    creditosUtilizados: abonoRows.reduce((a, r) => a + Number(r.creditosUtilizados), 0),
+    fechaVencimiento: abonoRows[0].fechaVencimiento,
+    nombrePlan: [...new Set(abonoRows.map(r => r.nombrePlan))].join(' + '),
+  };
+
   // Si no tiene abono activo, estructuramos un objeto vacío por defecto
-  const abonoActivo = abonoRows[0] || {
+  const abonoActivo = abonoSumado || {
     totalCreditos: 0,
     creditosCisponibles: 0,
     creditosUtilizados: 0,

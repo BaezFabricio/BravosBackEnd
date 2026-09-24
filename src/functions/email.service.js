@@ -210,9 +210,79 @@ const sendMembresiaPorVencerEmail = async (email, nombre, diasRestantes) => {
   }
 };
 
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
+
+/**
+ * Comprobante de pago: se envía al alumno cuando se acredita su membresía.
+ * Como los otros avisos, nunca lanza: un fallo de SMTP no debe afectar la
+ * acreditación, que ya quedó guardada.
+ */
+const sendPagoConfirmadoEmail = async (email, nombre, { plan, importe, creditos, vencimiento, referencia }) => {
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const monto = Number(importe).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const venc = vencimiento
+    ? new Date(vencimiento).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })
+    : null;
+
+  const fila = (label, valor) => `
+    <tr>
+      <td style="padding: 10px 0; font-size: 13px; color: #777; border-bottom: 1px solid #eee;">${label}</td>
+      <td style="padding: 10px 0; font-size: 14px; color: #111; font-weight: bold; text-align: right; border-bottom: 1px solid #eee;">${valor}</td>
+    </tr>`;
+
+  const mailOptions = {
+    from: `"Bravos Box 🏋️‍♂️" <${process.env.SMTP_USER}>`,
+    to: email,
+    subject: '✅ Pago confirmado — tu membresía está activa',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e0e0e0;">
+        <div style="background: #111111; padding: 28px 32px; text-align: center;">
+          <p style="color: #a3e635; font-size: 11px; font-weight: 900; letter-spacing: 3px; text-transform: uppercase; margin: 0 0 8px 0;">Bravos Box</p>
+          <h1 style="color: #ffffff; font-size: 24px; font-weight: 900; text-transform: uppercase; margin: 0; letter-spacing: 1px;">¡Pago confirmado!</h1>
+        </div>
+
+        <div style="padding: 32px;">
+          <p style="font-size: 16px; color: #333; margin: 0 0 16px 0;">Hola <strong>${escapeHtml(nombre)}</strong>,</p>
+          <p style="font-size: 15px; color: #555; line-height: 1.6; margin: 0 0 24px 0;">
+            Recibimos tu pago y tu membresía ya está activa. Ya podés reservar tus clases.
+          </p>
+
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 28px;">
+            ${fila('Plan', escapeHtml(plan))}
+            ${fila('Importe', `$${monto}`)}
+            ${creditos != null ? fila('Créditos', escapeHtml(creditos)) : ''}
+            ${venc ? fila('Vence el', venc) : ''}
+            ${referencia ? fila('N° de operación', `<span style="font-size: 12px;">${escapeHtml(referencia)}</span>`) : ''}
+          </table>
+
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${frontendUrl}/alumno/creditos" style="background-color: #a3e635; color: #000; padding: 14px 40px; text-decoration: none; font-size: 14px; font-weight: 900; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">
+              Ver mis créditos →
+            </a>
+          </div>
+        </div>
+
+        <div style="background: #f5f5f5; padding: 16px 32px; text-align: center;">
+          <p style="font-size: 11px; color: #999; margin: 0;">Este correo fue generado automáticamente por Bravos Box. No respondas este mensaje.</p>
+        </div>
+      </div>
+    `
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`[Email] Comprobante de pago enviado a: ${email}`);
+  } catch (error) {
+    console.error(`[Email Error] Comprobante de pago a ${email}:`, error.message);
+  }
+};
+
 module.exports = {
   sendVerificationEmail,
   sendRecoveryEmail,
   sendClaseDisponibleEmail,
   sendMembresiaPorVencerEmail,
+  sendPagoConfirmadoEmail,
 };

@@ -3,6 +3,7 @@ const db = require('../config/db')
 const { asyncHandler } = require('../utils/helpers')
 const { successResponse, errorResponse } = require('../utils/response')
 const { crearNotificacion } = require('../functions/notificacion.service')
+const { sendPagoConfirmadoEmail } = require('../functions/email.service')
 
 /**
  * Valida que la notificación venga realmente de MercadoPago.
@@ -111,14 +112,14 @@ const acreditarPago = async ({ paymentId, idAlumno, idPlan, importe }) => {
   const plan = planRows[0]
 
   const [alumnoRows] = await db.query(`
-    SELECT a.idAlumno, u.idUsuario
+    SELECT a.idAlumno, u.idUsuario, p.correo, p.nombrecompleto
     FROM alumno a
     INNER JOIN persona p ON a.idPersona = p.idPersona
     INNER JOIN usuario u ON p.idPersona = u.idPersona
     WHERE a.idAlumno = ?
   `, [idAlumno])
   if (alumnoRows.length === 0) return false
-  const { idUsuario } = alumnoRows[0]
+  const { idUsuario, correo, nombrecompleto } = alumnoRows[0]
 
   const fechaInicio      = new Date()
   const fechaVencimiento = proximoDia10(fechaInicio)
@@ -159,6 +160,19 @@ const acreditarPago = async ({ paymentId, idAlumno, idPlan, importe }) => {
     `Tu pago por ${plan.nombre} fue confirmado. Ya podés reservar clases.`,
     '/alumno/creditos'
   )
+
+  // Comprobante por correo. Sin await a propósito: el envío SMTP tarda segundos
+  // y no debe demorar la respuesta al webhook ni al alumno; además la función
+  // ya captura sus propios errores, así que un fallo acá no afecta la acreditación.
+  if (correo) {
+    sendPagoConfirmadoEmail(correo, nombrecompleto, {
+      plan: plan.nombre,
+      importe,
+      creditos: plan.cantidadCreditos,
+      vencimiento: fechaVencimiento,
+      referencia: String(paymentId),
+    })
+  }
   return true
 }
 
@@ -434,11 +448,86 @@ exports.procesarTarjeta = asyncHandler(async (req, res) => {
   return errorResponse(res, payment.status_detail || 'Pago rechazado.', 'PAYMENT_REJECTED', 400)
 })
 
+const DIAS_POR_VENCER = 7
+
+/**
+ * GET /pagos/mi-plan
+ * Planes vigentes del alumno (cada compra tiene su propio crédito y su propio
+ * vencimiento, así que puede haber más de uno), totales sumados y datos para
+ * decidir si mostrar "Pagar el mes": si está por vencer o ya venció, y cuál fue
+ * el último plan que pagó.
+ */
+exports.miPlan = asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store')
+  const idUsuario = req.user.idUsuario
+
+  const [vigentes] = await db.query(
+    `SELECT c.idCredito, c.totalCreditos, c.creditosCisponibles AS disponibles,
+            c.creditosUtilizados AS utilizados,
+            DATE_FORMAT(c.fechaVencimiento, '%Y-%m-%d') AS fechaVencimiento,
+            DATEDIFF(c.fechaVencimiento, CURDATE()) AS diasRestantes,
+            pl.idPlan, pl.nombre AS nombrePlan, pl.precio
+     FROM credito c
+     INNER JOIN alumno a ON c.idAlumno = a.idAlumno
+     INNER JOIN usuario u ON a.idPersona = u.idPersona
+     INNER JOIN pago p ON c.idPago = p.idPago
+     INNER JOIN plan pl ON p.idPlan = pl.idPlan
+     WHERE u.idUsuario = ? AND c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE()
+     ORDER BY c.fechaVencimiento ASC, c.idCredito ASC`,
+    [idUsuario]
+  )
+
+  const [ultimo] = await db.query(
+    `SELECT pl.idPlan, pl.nombre AS nombrePlan, pl.precio
+     FROM pago pg
+     INNER JOIN alumno a ON pg.idAlumno = a.idAlumno
+     INNER JOIN usuario u ON a.idPersona = u.idPersona
+     INNER JOIN plan pl ON pg.idPlan = pl.idPlan
+     WHERE u.idUsuario = ? AND pg.estadoPago = 'confirmado'
+     ORDER BY pg.idPago DESC LIMIT 1`,
+    [idUsuario]
+  )
+
+  const planes = vigentes.map((v) => ({
+    ...v,
+    precio: Number(v.precio),
+    diasRestantes: Number(v.diasRestantes),
+  }))
+  const diasMin = planes.length ? Math.min(...planes.map((p) => p.diasRestantes)) : null
+
+  return successResponse(res, 'Plan obtenido', {
+    planes,
+    totalDisponibles: planes.reduce((acc, p) => acc + p.disponibles, 0),
+    totalCreditos: planes.reduce((acc, p) => acc + p.totalCreditos, 0),
+    proximoVencimiento: planes[0]?.fechaVencimiento ?? null,
+    vigente: planes.length > 0,
+    porVencer: planes.length > 0 && diasMin <= DIAS_POR_VENCER,
+    ultimoPlan: ultimo[0] ? { ...ultimo[0], precio: Number(ultimo[0].precio) } : null,
+  })
+})
+
 /**
  * GET /pagos/planes
  * Retorna los planes activos (sin auth, para que el alumno los vea antes de pagar).
  */
 exports.getPlanes = asyncHandler(async (req, res) => {
   const [planes] = await db.query('SELECT idPlan, nombre, descripcion, precio, cantidadCreditos, tipo FROM plan ORDER BY precio ASC')
-  return successResponse(res, 'Planes obtenidos correctamente', planes)
+
+  // "Más popular" = el plan con más compras confirmadas. Este endpoint es público:
+  // se expone solo el marcador, no las cantidades de ventas.
+  const [ventas] = await db.query(
+    `SELECT idPlan, COUNT(*) AS total
+       FROM pago
+      WHERE estadoPago = 'confirmado'
+      GROUP BY idPlan
+      ORDER BY total DESC, idPlan ASC
+      LIMIT 1`
+  )
+  const idMasPopular = ventas[0]?.total > 0 ? ventas[0].idPlan : null
+
+  return successResponse(
+    res,
+    'Planes obtenidos correctamente',
+    planes.map((p) => ({ ...p, masPopular: p.idPlan === idMasPopular }))
+  )
 })
