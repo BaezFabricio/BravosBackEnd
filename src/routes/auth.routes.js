@@ -54,6 +54,7 @@ router.post('/recuperar-contrasena', limiteRecuperacionPorIp, authController.rec
  * GET /api/auth/me
  * Devuelve la sesión actual
  */
+router.post('/logout', authController.logout);
 router.get('/me', authenticateToken, authController.me);
 
 /**

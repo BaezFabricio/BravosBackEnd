@@ -26,6 +26,7 @@ const app = require('../src/app');
 const PUBLICAS = {
   'POST /api/vv1/auth/registro': 'Registro de cuentas nuevas',
   'POST /api/vv1/auth/login': 'Inicio de sesión',
+  'POST /api/vv1/auth/logout': 'Cerrar sesión: solo borra la cookie de quien llama',
   'POST /api/vv1/auth/recuperar-contrasena': 'Recuperar contraseña (usa un código enviado por correo)',
   'GET /api/vv1/auth/verificar/:token': 'Verificación de cuenta con el enlace del correo',
   'POST /api/vv1/auth/reenviar-verificacion': 'Reenviar el correo de verificación',

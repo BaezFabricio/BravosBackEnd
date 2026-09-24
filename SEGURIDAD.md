@@ -50,8 +50,14 @@ Probar siempre con tokens de distinta identidad y comprobar el código de respue
 
 Los tokens de prueba se generan con `generateToken({ idUsuario, idPerfil })` (`src/functions/jwt.js`).
 
+## Sesión
+
+El token de sesión viaja en la cookie httpOnly `bravos_token` (`src/functions/sesionCookie.js`); el frontend nunca lo
+ve ni lo guarda. `authenticateToken` lee la cookie (y acepta `Authorization: Bearer` para clientes que no son el
+navegador). Como el navegador manda la cookie solo, los pedidos que modifican datos con cookie se rechazan si el
+encabezado `Origin` no es el del propio sistema (defensa contra CSRF), y la cookie es `SameSite=Lax`.
+Todo HTML guardado por usuarios (rutinas, descripciones) se muestra con `sanitizarHtml` en el frontend.
+
 ## Pendientes conocidos (ver Linear)
 
-- FAB-70: validar que la clase pertenezca al profesor al marcar asistencia.
 - FAB-71: revisar la matriz de permisos por perfil (el perfil Alumno tiene permisos de profesor).
-- FAB-5: el token de sesión vive en `localStorage` (riesgo si hay XSS).
