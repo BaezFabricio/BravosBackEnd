@@ -1,12 +1,23 @@
 const db = require('../config/db');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
+const { tienePermiso } = require('../middlewares/permissions.middleware');
 const { crearNotificacion, getIdUsuarioPorReserva } = require('../functions/notificacion.service');
 
 // Importaciones de tus archivos de datos
 const obtenerProfesoresActivos = require('../data/Profesores/ObtenerProfesoresActivos');
 const obtenerAlumnosPorReserva = require('../data/Profesores/ObtenerAlumnosPorReserva');
 const obtenerClasesPorProfesor = require('../data/Profesores/ObtenerClasesPorProfesor');
+
+// Solo el profesor a cargo de la clase (o quien administra perfiles) puede ver sus alumnos o marcar asistencia.
+// El permiso 'profesor' solo no alcanza: el perfil Alumno también lo tiene (FAB-71).
+async function puedeGestionarClase(req, idClase) {
+  if (await tienePermiso(req.user?.idPerfil, 'perfiles', 'modificacion')) return true;
+  const idProfesor = Number(req.user?.idProfesor);
+  if (!idProfesor) return false;
+  const [rows] = await db.query('SELECT idProfesor FROM diaclase WHERE idClase = ?', [idClase]);
+  return rows.length > 0 && Number(rows[0].idProfesor) === idProfesor;
+}
 
 // 1. Obtener todos los profesores
 exports.getAll = asyncHandler(async (req, res) => {
@@ -49,6 +60,10 @@ exports.getMisClases = asyncHandler(async (req, res) => {
 exports.getAlumnosPorClase = asyncHandler(async (req, res) => {
   const { idClase } = req.params;
   const { fecha, idHorario } = req.query;
+
+  if (!(await puedeGestionarClase(req, idClase))) {
+    return errorResponse(res, 'No tenés permiso sobre esta clase.', 'FORBIDDEN', 403);
+  }
 
   if (!fecha) {
     return errorResponse(res, 'La fecha es obligatoria para tomar lista.', 'MISSING_FECHA', 400);
@@ -129,12 +144,16 @@ exports.marcarAsistencia = asyncHandler(async (req, res) => {
 
   // Validamos que la reserva exista y tomamos su fecha como fecha de asistencia
   const [reservaRows] = await db.query(
-    'SELECT idReserva, fechaReserva FROM reserva WHERE idReserva = ?',
+    'SELECT r.idReserva, r.fechaReserva, h.idClase FROM reserva r INNER JOIN horarioclase h ON r.idHorario = h.idHorario WHERE r.idReserva = ?',
     [idReserva]
   );
 
   if (reservaRows.length === 0) {
     return errorResponse(res, 'La reserva indicada no existe.', 'NOT_FOUND', 404);
+  }
+
+  if (!(await puedeGestionarClase(req, reservaRows[0].idClase))) {
+    return errorResponse(res, 'No tenés permiso sobre esta clase.', 'FORBIDDEN', 403);
   }
 
   const fecha = reservaRows[0].fechaReserva;
