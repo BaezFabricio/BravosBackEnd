@@ -1,11 +1,30 @@
 const { extractToken, verifyToken } = require('../functions/jwt');
 const { errorResponse } = require('../utils/response');
+const { NOMBRE_COOKIE, leerCookie } = require('../functions/sesionCookie');
+const { corsOptions } = require('../config/cors');
+const envConfig = require('../config/env');
+
+const METODOS_SEGUROS = ['GET', 'HEAD', 'OPTIONS'];
+const PATRON_DEV = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):\d+$/;
+const origenPermitido = (origin) =>
+  corsOptions.origin.includes(origin) || (envConfig.nodeEnv !== 'production' && PATRON_DEV.test(origin));
 
 /**
  * Middleware para verificar autenticación (JWT)
  */
 function authenticateToken(req, res, next) {
-  const token = extractToken(req.headers);
+  // La sesión normal viaja en una cookie httpOnly; el encabezado Bearer queda para clientes que no son el navegador.
+  const cookieToken = leerCookie(req.headers, NOMBRE_COOKIE);
+  const token = cookieToken || extractToken(req.headers);
+
+  // Con cookie, el navegador la manda sola: para que otro sitio no pueda usarla (CSRF) los pedidos que
+  // modifican datos solo se aceptan si vienen del propio sistema.
+  if (cookieToken && !METODOS_SEGUROS.includes(req.method)) {
+    const origin = req.headers.origin;
+    if (origin && !origenPermitido(origin)) {
+      return errorResponse(res, 'Origen no permitido', 'BAD_ORIGIN', 403);
+    }
+  }
 
   if (!token) {
     return errorResponse(res, 'Token ausente. Por favor proporciona un token válido', 'NO_TOKEN', 401);

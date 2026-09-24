@@ -10,6 +10,7 @@ const insertarUsuario = require('../data/Usuarios/InsertarUsuario');
 const { hashPassword, comparePassword } = require('../functions/encryption');
 const { crearNotificacion, crearNotificacionAdmins } = require('../functions/notificacion.service');
 const { generateToken } = require('../functions/jwt');
+const { guardarSesion, borrarSesion } = require('../functions/sesionCookie');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
 const { sendVerificationEmail } = require('../functions/email.service'); 
@@ -204,8 +205,8 @@ exports.login = asyncHandler(async (req, res) => {
   });
 
   // 4. 🚀 Devolvemos la respuesta impecable al Frontend
+  guardarSesion(res, token); // el token va solo en la cookie httpOnly, no en el cuerpo de la respuesta
   return successResponse(res, 'Sesión iniciada exitosamente', {
-    token,
     usuario: {
       idUsuario: usuario.idUsuario,
       nombrecompleto: usuario.nombrecompleto,
@@ -218,6 +219,14 @@ exports.login = asyncHandler(async (req, res) => {
     },
     permisos: listaPermisosFormateada, // 👈 Ahora el array viaja con tus datos de MySQL
   });
+});
+
+/**
+ * POST /api/auth/logout — borra la cookie de sesión
+ */
+exports.logout = asyncHandler(async (req, res) => {
+  borrarSesion(res);
+  return successResponse(res, 'Sesión cerrada', null, 200);
 });
 
 /**
