@@ -42,14 +42,6 @@ app.get('/health', (req, res) => {
 app.get('/verificar-cuenta/:token', authController.verificarCuenta);
 app.get('/api/auth/verificar/:token', authController.verificarCuenta);
 
-// Test directo
-app.get('/test-landing', (req, res) => {
-  res.json({
-    mensaje: 'El backend sí responde en este puerto',
-  });
-});
-
-
 const landingRoutes = require('./routes/landing.routes.js');
 app.use('/landing', landingRoutes.default || landingRoutes);
 

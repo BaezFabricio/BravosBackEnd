@@ -1,3 +1,4 @@
+const { tienePermiso } = require('../middlewares/permissions.middleware');
 const db = require('../config/db');
 const { crearNotificacion, crearNotificacionAdmins, getIdUsuarioPorCredito } = require('../functions/notificacion.service');
 const obtenerUsuarioPorId = require('../data/Usuarios/ObtenerUsuarioPorId');
@@ -240,10 +241,14 @@ exports.update = asyncHandler(async (req, res) => {
     const finalDni = dni || personaActual.dni;
     const finalTelefono = telefono || personaActual.telefono;
     const finalUsername = username || email || correo || usuarioActual.username;
-    const finalEstado = estado || usuarioActual.estado;
-    
-    const finalIdPerfil = idPerfil !== undefined && idPerfil !== null && idPerfil !== "" 
-      ? parseInt(idPerfil) 
+    // Perfil y estado solo los puede cambiar quien tiene permiso de modificar usuarios. Sin esto,
+    // cualquiera podía enviar su propio idPerfil y convertirse en administrador.
+    const puedeAdministrar = await tienePermiso(req.user?.idPerfil, 'usuarios', 'modificacion');
+
+    const finalEstado = puedeAdministrar ? (estado || usuarioActual.estado) : usuarioActual.estado;
+
+    const finalIdPerfil = puedeAdministrar && idPerfil !== undefined && idPerfil !== null && idPerfil !== ""
+      ? parseInt(idPerfil)
       : usuarioActual.idPerfil;
 
     // 1. Modificamos el usuario base

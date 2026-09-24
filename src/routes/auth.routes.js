@@ -38,19 +38,6 @@ router.get('/verificar/:token', authController.verificarCuenta);
 
 router.post('/reenviar-verificacion', authController.reenviarVerificacion);
 
-// Ruta de depuración: devuelve datos crudos de usuario por id (solo en development)
-if (process.env.NODE_ENV !== 'production') {
-	router.get('/debug/user/:id', async (req, res) => {
-		try {
-			const db = require('../config/db');
-			const obtenerUsuarioRegistrado = require('../data/Auth/ObtenerUsuarioRegistrado');
-			const [rows] = await db.query(obtenerUsuarioRegistrado, [req.params.id]);
-			return res.json({ success: true, data: rows[0] || null });
-		} catch (err) {
-			console.error('Debug route error:', err);
-			return res.status(500).json({ success: false, message: 'Error interno' });
-		}
-	});
-}
+// (Se eliminó la ruta /debug/user/:id: devolvía nombre, DNI, correo y teléfono de cualquier usuario sin pedir sesión.)
 
 module.exports = router;

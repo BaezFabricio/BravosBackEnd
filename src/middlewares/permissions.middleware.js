@@ -37,6 +37,37 @@ function requirePermission(moduloNombre, accion) {
   };
 }
 
+/**
+ * ¿Este perfil tiene el permiso módulo:acción? (mismo criterio que requirePermission)
+ */
+async function tienePermiso(idPerfil, moduloNombre, accion) {
+  if (!idPerfil) return false;
+  const [permisos] = await db.query(obtenerPermisoPerfilModulo, [idPerfil, moduloNombre, accion]);
+  return permisos.length > 0;
+}
+
+/**
+ * Deja pasar si el perfil tiene AL MENOS UNO de los permisos [[modulo, accion], ...].
+ * Sirve para rutas que usan dos tipos de perfil (por ejemplo alumno y administrador).
+ */
+function requireAnyPermission(pares) {
+  return async (req, res, next) => {
+    if (!req.user) {
+      return errorResponse(res, 'No autenticado', 'NOT_AUTHENTICATED', 401);
+    }
+
+    try {
+      for (const [modulo, accion] of pares) {
+        if (await tienePermiso(req.user.idPerfil, modulo, accion)) return next();
+      }
+      return errorResponse(res, 'Acceso denegado por permisos insuficientes', 'FORBIDDEN', 403);
+    } catch (error) {
+      console.error('Error en middleware de permisos:', error);
+      return errorResponse(res, 'Error interno al validar permisos', 'INTERNAL_SERVER_ERROR', 500);
+    }
+  };
+}
+
 function allowSelfOrPermission(moduloNombre, accion) {
   const permissionMiddleware = requirePermission(moduloNombre, accion);
 
@@ -54,7 +85,17 @@ function allowSelfOrPermission(moduloNombre, accion) {
   };
 }
 
+// Cada control de permiso queda marcado para que scripts/auditar-rutas.js pueda comprobar
+// automáticamente que ninguna ruta se olvidó de exigir permisos.
+const marcar = (fabrica) => (...args) => {
+  const middleware = fabrica(...args);
+  middleware.esControlDePermiso = true;
+  return middleware;
+};
+
 module.exports = {
-  requirePermission,
-  allowSelfOrPermission,
+  requirePermission: marcar(requirePermission),
+  requireAnyPermission: marcar(requireAnyPermission),
+  allowSelfOrPermission: marcar(allowSelfOrPermission),
+  tienePermiso,
 };

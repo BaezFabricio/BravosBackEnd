@@ -1,0 +1,13 @@
+#!/bin/sh
+# Bloquea el commit si alguna ruta del servidor quedó sin sesión o sin permiso.
+# Se activa con: git config core.hooksPath .githooks   (ya está activado en esta copia del repositorio)
+echo "Auditando la seguridad de las rutas antes de commitear..."
+node scripts/auditar-rutas.js >/tmp/auditoria_rutas.txt 2>&1
+resultado=$?
+if [ $resultado -ne 0 ]; then
+  grep -v "Pool\|Cron" /tmp/auditoria_rutas.txt
+  echo ""
+  echo "COMMIT BLOQUEADO: corregí las rutas de arriba (o justificá la excepción en scripts/auditar-rutas.js)."
+  exit 1
+fi
+echo "Rutas OK."
