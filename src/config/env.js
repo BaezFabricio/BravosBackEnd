@@ -4,6 +4,17 @@ require('dotenv').config({
   path: path.resolve(__dirname, '../../.env'),
 });
 
+// Con el secreto por defecto (escrito en el código) cualquiera podría fabricar un token válido de
+// cualquier usuario, incluido un administrador. Por eso en producción el servidor no arranca con él.
+const SECRETO_POR_DEFECTO = 'your_secret_key_change_this_in_production';
+const secretoJwt = process.env.JWT_SECRET || SECRETO_POR_DEFECTO;
+if (process.env.NODE_ENV === 'production' && (secretoJwt === SECRETO_POR_DEFECTO || secretoJwt.length < 32)) {
+  throw new Error('JWT_SECRET debe estar definido en el .env con un valor aleatorio de al menos 32 caracteres');
+}
+if (secretoJwt === SECRETO_POR_DEFECTO) {
+  console.warn('[SEGURIDAD] JWT_SECRET usa el valor por defecto: definí uno propio en el .env');
+}
+
 const envConfig = {
   // Base de datos
   db: {
@@ -19,7 +30,7 @@ const envConfig = {
 
   // JWT
   jwt: {
-    secret: process.env.JWT_SECRET || 'your_secret_key_change_this_in_production',
+    secret: secretoJwt,
     expiresIn: process.env.JWT_EXPIRES_IN || '24h',
   },
 
@@ -53,4 +64,8 @@ const envConfig = {
   }
 };
 
+
+// El secreto con el que se firman las sesiones. Si fuera conocido (por ejemplo, este valor por defecto,
+// que está escrito en el código), cualquiera podría fabricar un token válido de cualquier usuario,
+// incluido un administrador, y saltearse todos los permisos.
 module.exports = envConfig;

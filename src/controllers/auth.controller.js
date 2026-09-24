@@ -391,6 +391,12 @@ module.exports = exports;
  * POST /api/auth/recuperar-contrasena
  * Maneja acciones: send_code, verify_code, reset_password
  */
+// Recuperación de contraseña: el código de 6 dígitos tiene un millón de combinaciones, así que sin
+// límite de intentos se puede adivinar en minutos y quedarse con la cuenta de cualquiera.
+const MAX_INTENTOS_CODIGO = 5;          // fallos permitidos por código; al pasarse hay que pedir uno nuevo
+const ESPERA_ENTRE_ENVIOS_MS = 60 * 1000;
+const RESPUESTA_CODIGO_INVALIDO = ['Código inválido o expirado. Pedí uno nuevo.', 'INVALID_CODE'];
+
 exports.recuperarContrasena = asyncHandler(async (req, res) => {
   const { email, action, code, password } = req.body;
 
@@ -399,22 +405,30 @@ exports.recuperarContrasena = asyncHandler(async (req, res) => {
   // Comprobamos si existe la persona/usuario
   const [personas] = await db.query('SELECT p.*, u.idUsuario FROM persona p LEFT JOIN usuario u ON p.idPersona = u.idPersona WHERE p.correo = ?', [email]);
   if (!personas || personas.length === 0) {
-    return errorResponse(res, 'No se encontró una cuenta asociada a ese correo', 'USER_NOT_FOUND', 404);
+    // Misma respuesta que si existiera, para que nadie pueda averiguar qué correos están registrados
+    if (action === 'send_code') return successResponse(res, 'Si el correo está registrado, te enviamos un código', null, 200);
+    return errorResponse(res, RESPUESTA_CODIGO_INVALIDO[0], RESPUESTA_CODIGO_INVALIDO[1], 400);
   }
 
   const persona = personas[0];
 
   if (action === 'send_code') {
+    // No se puede pedir un código nuevo cada segundo (evita llenar de correos a la víctima)
+    const previo = recoveryStore.get(email);
+    if (previo && previo.creadoEn && Date.now() - previo.creadoEn < ESPERA_ENTRE_ENVIOS_MS) {
+      return errorResponse(res, 'Ya te enviamos un código hace instantes. Esperá un minuto para pedir otro.', 'CODE_COOLDOWN', 429);
+    }
+
     // Generar código de 6 dígitos
-    const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const newCode = crypto.randomInt(100000, 1000000).toString();
     const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutos
 
-    recoveryStore.set(email, { code: newCode, expiresAt });
+    recoveryStore.set(email, { code: newCode, expiresAt, creadoEn: Date.now(), intentos: 0 });
 
     // Enviamos el correo con el código
     await sendRecoveryEmail(email, persona.nombrecompleto, newCode);
 
-    return successResponse(res, 'Código enviado al correo', null, 200);
+    return successResponse(res, 'Si el correo está registrado, te enviamos un código', null, 200);
   }
 
   if (action === 'verify_code') {
@@ -424,7 +438,14 @@ exports.recuperarContrasena = asyncHandler(async (req, res) => {
       recoveryStore.delete(email);
       return errorResponse(res, 'El código expiró', 'CODE_EXPIRED', 400);
     }
-    if (entry.code !== String(code)) return errorResponse(res, 'Código inválido', 'INVALID_CODE', 400);
+    if (entry.code !== String(code)) {
+      entry.intentos = (entry.intentos || 0) + 1;
+      if (entry.intentos >= MAX_INTENTOS_CODIGO) {
+        recoveryStore.delete(email);
+        return errorResponse(res, 'Demasiados intentos con un código incorrecto. Pedí un código nuevo.', 'CODE_LOCKED', 429);
+      }
+      return errorResponse(res, 'Código inválido', 'INVALID_CODE', 400);
+    }
 
     return successResponse(res, 'Código verificado', null, 200);
   }
@@ -438,7 +459,14 @@ exports.recuperarContrasena = asyncHandler(async (req, res) => {
       recoveryStore.delete(email);
       return errorResponse(res, 'El código expiró', 'CODE_EXPIRED', 400);
     }
-    if (entry.code !== String(code)) return errorResponse(res, 'Código inválido', 'INVALID_CODE', 400);
+    if (entry.code !== String(code)) {
+      entry.intentos = (entry.intentos || 0) + 1;
+      if (entry.intentos >= MAX_INTENTOS_CODIGO) {
+        recoveryStore.delete(email);
+        return errorResponse(res, 'Demasiados intentos con un código incorrecto. Pedí un código nuevo.', 'CODE_LOCKED', 429);
+      }
+      return errorResponse(res, 'Código inválido', 'INVALID_CODE', 400);
+    }
 
     // Hasheamos la nueva contraseña
     const hashed = await hashPassword(password);
