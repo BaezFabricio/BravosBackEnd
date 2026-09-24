@@ -451,6 +451,52 @@ exports.procesarTarjeta = asyncHandler(async (req, res) => {
 const DIAS_POR_VENCER = 7
 
 /**
+ * GET /pagos/mi-historial
+ * Todas las membresías que compró el alumno (cada crédito es una compra), de la más
+ * nueva a la más vieja, con su estado real: ACTIVO, VENCIDO (pasó la fecha de
+ * vencimiento) o CANCELADO (lo anuló un administrador).
+ */
+exports.miHistorial = asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store')
+
+  const [rows] = await db.query(
+    `SELECT c.idCredito, c.totalCreditos, c.creditosCisponibles AS disponibles,
+            c.creditosUtilizados AS utilizados,
+            DATE_FORMAT(c.fechaInicio, '%Y-%m-%d') AS fechaInicio,
+            DATE_FORMAT(c.fechaVencimiento, '%Y-%m-%d') AS fechaVencimiento,
+            c.estado AS estadoCredito,
+            (c.fechaVencimiento < CURDATE()) AS pasoElVencimiento,
+            pl.nombre AS nombrePlan, p.importe, p.formaPago
+     FROM credito c
+     INNER JOIN alumno a ON c.idAlumno = a.idAlumno
+     INNER JOIN usuario u ON a.idPersona = u.idPersona
+     LEFT JOIN pago p ON c.idPago = p.idPago
+     LEFT JOIN plan pl ON p.idPlan = pl.idPlan
+     WHERE u.idUsuario = ?
+     ORDER BY c.fechaInicio DESC, c.idCredito DESC`,
+    [req.user.idUsuario]
+  )
+
+  const historial = rows.map((r) => {
+    const estado = r.estadoCredito === 'CANCELADO' ? 'CANCELADO' : r.pasoElVencimiento ? 'VENCIDO' : 'ACTIVO'
+    return {
+      idCredito: r.idCredito,
+      nombrePlan: r.nombrePlan || 'Plan',
+      fechaInicio: r.fechaInicio,
+      fechaVencimiento: r.fechaVencimiento,
+      totalCreditos: r.totalCreditos,
+      utilizados: r.utilizados,
+      disponibles: r.disponibles,
+      importe: r.importe == null ? null : Number(r.importe),
+      formaPago: r.formaPago || null,
+      estado,
+    }
+  })
+
+  return successResponse(res, 'Historial obtenido', historial)
+})
+
+/**
  * GET /pagos/mi-plan
  * Planes vigentes del alumno (cada compra tiene su propio crédito y su propio
  * vencimiento, así que puede haber más de uno), totales sumados y datos para

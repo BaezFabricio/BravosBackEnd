@@ -15,6 +15,9 @@ router.get('/estado/:idPlan', authenticateToken, pagosCtrl.estadoPago)
 // Plan(es) vigentes del alumno, para el dashboard y la pantalla de pagos.
 router.get('/mi-plan', authenticateToken, pagosCtrl.miPlan)
 
+// Historial de todas las membresías compradas (activas, vencidas y canceladas).
+router.get('/mi-historial', authenticateToken, pagosCtrl.miHistorial)
+
 // MP llama sin auth — no usar authenticateToken aquí
 router.post('/webhook', pagosCtrl.webhook)
 
