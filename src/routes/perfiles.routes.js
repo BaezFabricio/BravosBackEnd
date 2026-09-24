@@ -5,9 +5,8 @@ const { requirePermission } = require('../middlewares/permissions.middleware.js'
 
 const router = express.Router();
 
-router.get("/", obtenerPerfiles);         
-router.post("/", guardarPerfilCompleto);   
-router.put("/", guardarPerfilCompleto);  
-router.delete("/:id", eliminarPerfil); 
-
+router.get("/", authenticateToken, requirePermission('perfiles', 'consulta'), obtenerPerfiles);
+router.post("/", authenticateToken, requirePermission('perfiles', 'alta'), guardarPerfilCompleto);
+router.put("/", authenticateToken, requirePermission('perfiles', 'modificacion'), guardarPerfilCompleto);
+router.delete("/:id", authenticateToken, requirePermission('perfiles', 'baja'), eliminarPerfil);
 module.exports = router;
