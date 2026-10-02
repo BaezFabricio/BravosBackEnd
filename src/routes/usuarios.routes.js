@@ -21,6 +21,13 @@ router.get(
   usuariosController.getAllAbonos
 );
 
+router.delete(
+  '/abonos/:idCredito/definitivo',
+  authenticateToken,
+  requirePermission('Usuarios', 'baja'),
+  usuariosController.eliminarAbonoDefinitivo
+);
+
 router.get(
   '/:id/abonos',
   authenticateToken,

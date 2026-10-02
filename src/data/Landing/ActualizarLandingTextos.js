@@ -7,7 +7,7 @@ const SECCION_MAP = {
            'claseCard2Titulo', 'claseCard2Descripcion', 'claseCard2Icono',
            'claseCard3Titulo', 'claseCard3Descripcion', 'claseCard3Icono'],
   contacto: ['direccion', 'telefono', 'email', 'instagram',
-             'horario_semana', 'horario_sabado', 'horario_domingo', 'mapaUrl'],
+             'horario_semana', 'horario_sabado', 'horario_domingo', 'mapaUrl', 'whatsapp'],
 };
 
 function resolverSeccion(clave) {
