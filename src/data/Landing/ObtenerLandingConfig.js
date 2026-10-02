@@ -37,6 +37,7 @@ const ObtenerLandingConfig = async () => {
       horario_sabado: 'Sábado: 8:00 - 14:00',
       horario_domingo: 'Domingo: Cerrado',
       mapaUrl: '',
+      whatsapp: '',
       // Datos bancarios para transferencia
       bancoEntidad: '',
       titularCuenta: '',

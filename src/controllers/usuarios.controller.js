@@ -443,6 +443,7 @@ exports.getAbonosByUsuario = asyncHandler(async (req, res) => {
       c.creditosCisponibles AS disponibles,
       c.estado,
       p.formaPago AS metodoPago,
+      p.importe AS importe,
       pPers.nombrecompleto AS operadorReal
      FROM credito c
      INNER JOIN pago p ON c.idPago = p.idPago
@@ -474,6 +475,7 @@ exports.getAllAbonos = asyncHandler(async (req, res) => {
       c.creditosCisponibles AS disponibles,
       c.estado,
       p.formaPago AS metodoPago,
+      p.importe AS importe,
       pPers.nombrecompleto AS operadorReal
      FROM credito c
      INNER JOIN pago p ON c.idPago = p.idPago
@@ -629,16 +631,16 @@ exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
     turnos,
     ajuste,
     estado,
+    idPlan,
+    metodoPago,
+    importe,
   } = req.body;
-
-  // Forzamos que el estado vaya en Mayúsculas limpias ('ACTIVO', 'CANCELADO') como tus inserts nativos
-  const estadoFormateado = String(estado || 'ACTIVO').toUpperCase().trim();
-
-  const totalCreditos = Number(turnos ?? 0) + Number(ajuste ?? 0);
 
   // 1. Buscamos el estado actual del abono antes de sobreescribir
   const [creditoExistente] = await db.query(
-    `SELECT idCredito, creditosUtilizados, totalCreditos, estado
+    `SELECT idCredito, creditosUtilizados, totalCreditos, estado,
+            DATE_FORMAT(fechaInicio, '%Y-%m-%d') AS fechaInicio,
+            DATE_FORMAT(fechaVencimiento, '%Y-%m-%d') AS fechaVencimiento
      FROM credito
      WHERE idCredito = ?`,
     [idCreditoReal]
@@ -649,11 +651,53 @@ exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Abono no encontrado en el sistema', 'ABONO_NOT_FOUND', 404);
   }
 
-  const usados = creditoExistente[0].creditosUtilizados || 0;
+  // Datos del pago asociado (plan, método y monto)
+  const [pagoRows] = await db.query(
+    `SELECT p.idPago, p.formaPago, p.referenciaExterna
+     FROM credito c INNER JOIN pago p ON c.idPago = p.idPago
+     WHERE c.idCredito = ?`,
+    [idCreditoReal]
+  );
+  const pago = pagoRows[0];
+  const cambiosPago = {};
+  if (idPlan !== undefined && idPlan !== null && idPlan !== '') {
+    const [planRows] = await db.query('SELECT idPlan FROM plan WHERE idPlan = ?', [idPlan]);
+    if (planRows.length === 0) return errorResponse(res, 'El plan elegido no existe', 'PLAN_NOT_FOUND', 400);
+    cambiosPago.idPlan = Number(idPlan);
+  }
+  if (metodoPago !== undefined && metodoPago !== null && metodoPago !== '') {
+    const METODOS = ['Efectivo', 'Transferencia', 'Débito', 'Tarjeta Crédito', 'MercadoPago'];
+    if (!METODOS.includes(metodoPago)) return errorResponse(res, 'Método de pago inválido', 'INVALID_METODO', 400);
+    cambiosPago.formaPago = metodoPago;
+  }
+  if (importe !== undefined && importe !== null && importe !== '') {
+    const monto = Number(importe);
+    if (!Number.isFinite(monto) || monto < 0) return errorResponse(res, 'El monto no es válido', 'INVALID_IMPORTE', 400);
+    cambiosPago.importe = monto;
+  }
+  // Un cobro real de Mercado Pago no se reescribe: el método y el monto los fija la pasarela
+  const esMercadoPago = pago && (pago.formaPago === 'MercadoPago' || pago.referenciaExterna);
+  if (esMercadoPago && (cambiosPago.formaPago !== undefined && cambiosPago.formaPago !== pago.formaPago || cambiosPago.importe !== undefined)) {
+    delete cambiosPago.formaPago;
+    delete cambiosPago.importe;
+  }
+
+  const actual = creditoExistente[0];
+  const usados = actual.creditosUtilizados || 0;
+
+  // Cada campo: el valor nuevo si vino en el pedido, si no el que ya tenía
+  const vino = (v) => v !== undefined && v !== null && v !== '';
+  const estadoFormateado = String(vino(estado) ? estado : actual.estado || 'ACTIVO').toUpperCase().trim();
+  const totalCreditos = vino(turnos) ? Number(turnos) + Number(ajuste ?? 0) : Number(actual.totalCreditos) || 0;
+  const inicioFinal = vino(fechaInicio) ? sanitizarFecha(fechaInicio) : actual.fechaInicio;
+  const vencimientoFinal = vino(fechaVencimiento) ? sanitizarFecha(fechaVencimiento) : actual.fechaVencimiento;
+  if (!inicioFinal || !vencimientoFinal) {
+    return errorResponse(res, 'Las fechas de inicio y vencimiento son obligatorias', 'INVALID_FECHAS', 400);
+  }
   
   // 🚀 RECALCULO DE DISPONIBLES: 
   // Si pasa de CANCELADO a ACTIVO, recupera sus turnos totales menos los que ya gastó el alumno
-  let disponibles = totalCreditos - usados;
+  let disponibles = Math.max(totalCreditos - usados, 0);
   
   // Si explícitamente se lo deja en CANCELADO, los disponibles mueren en 0
   if (estadoFormateado === 'CANCELADO') {
@@ -670,8 +714,8 @@ exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
          estado = ?
      WHERE idCredito = ?`,
     [
-      sanitizarFecha(fechaInicio),
-      sanitizarFecha(fechaVencimiento),
+      inicioFinal,
+      vencimientoFinal,
       totalCreditos,
       disponibles,
       estadoFormateado,
@@ -679,13 +723,21 @@ exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
     ]
   );
 
+  if (pago && Object.keys(cambiosPago).length > 0) {
+    const campos = Object.keys(cambiosPago);
+    await db.query(
+      `UPDATE pago SET ${campos.map((c) => `${c} = ?`).join(', ')} WHERE idPago = ?`,
+      [...campos.map((c) => cambiosPago[c]), pago.idPago]
+    );
+  }
+
   const idUsuarioAlumno = await getIdUsuarioPorCredito(idCreditoReal);
   if (idUsuarioAlumno) {
     crearNotificacion(idUsuarioAlumno, 'credito',
       'Membresía actualizada',
       estadoFormateado === 'CANCELADO'
         ? 'Tu membresía fue marcada como cancelada. Contactá con el box para más información.'
-        : `Tu membresía fue actualizada: ${totalCreditos} créditos en total, vence el ${fechaVencimiento}.`,
+        : `Tu membresía fue actualizada: ${totalCreditos} créditos en total, vence el ${vencimientoFinal}.`,
       '/alumno/creditos'
     );
   }
@@ -724,6 +776,56 @@ exports.cancelarAbonoUsuario = asyncHandler(async (req, res) => {
   }
 
   return successResponse(res, 'Abono cancelado correctamente');
+});
+
+/**
+ * DELETE /usuarios/abonos/:idCredito/definitivo
+ * Borra para siempre una membresía CANCELADA (para que no se acumulen en el historial).
+ * Las reservas que usaron ese crédito se conservan, sin el vínculo. El pago se borra solo si fue
+ * cargado a mano: un cobro de Mercado Pago queda registrado, porque es dinero real y su referencia
+ * evita que la notificación de la pasarela lo vuelva a acreditar.
+ */
+exports.eliminarAbonoDefinitivo = asyncHandler(async (req, res) => {
+  const { idCredito } = req.params;
+  const [rows] = await db.query(
+    `SELECT c.idCredito, c.estado, c.idPago, p.formaPago, p.referenciaExterna
+     FROM credito c LEFT JOIN pago p ON c.idPago = p.idPago
+     WHERE c.idCredito = ?`,
+    [idCredito]
+  );
+  if (rows.length === 0) return errorResponse(res, 'Membresía no encontrada', 'ABONO_NOT_FOUND', 404);
+  const cred = rows[0];
+  if (String(cred.estado).toUpperCase() !== 'CANCELADO') {
+    return errorResponse(res, 'Solo se pueden eliminar membresías canceladas. Cancelala primero.', 'NOT_CANCELLED', 409);
+  }
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query('UPDATE reserva SET idCredito = NULL WHERE idCredito = ?', [idCredito]);
+    await conn.query('DELETE FROM credito WHERE idCredito = ?', [idCredito]);
+
+    const pagoManual = cred.idPago && cred.formaPago !== 'MercadoPago' && !cred.referenciaExterna;
+    if (pagoManual) {
+      const [otros] = await conn.query('SELECT COUNT(*) AS n FROM credito WHERE idPago = ?', [cred.idPago]);
+      if (otros[0].n === 0) {
+        try {
+          await conn.query('DELETE FROM pago WHERE idPago = ?', [cred.idPago]);
+        } catch (err) {
+          // Si otro registro todavía apunta a ese pago, se conserva el pago y se sigue igual
+          if (err.code !== 'ER_ROW_IS_REFERENCED_2') throw err;
+        }
+      }
+    }
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  return successResponse(res, 'Membresía eliminada definitivamente');
 });
 
 exports.aprobarAbono = asyncHandler(async (req, res) => {
