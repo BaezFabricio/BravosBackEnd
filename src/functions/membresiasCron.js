@@ -1,13 +1,87 @@
 const db = require('../config/db');
 const { crearNotificacion } = require('./notificacion.service');
-const { sendMembresiaPorVencerEmail } = require('./email.service');
+const { sendMembresiaPorVencerEmail, sendMembresiaVenceEmail } = require('./email.service');
+
+// Días de anticipación del aviso "tu membresía vence". Mismo valor que DIAS_POR_VENCER
+// (pagos.controller.js), que es lo que el panel muestra como "Por vencer".
+const DIAS_AVISO_VENCIMIENTO = 3;
+
+// Registro de avisos ya mandados. El cron corre al iniciar el servidor y cada 24 h:
+// sin esto, cada reinicio volvía a mandar el mismo correo.
+const CREAR_TABLA_AVISOS = `
+  CREATE TABLE IF NOT EXISTS aviso_enviado (
+    tipo VARCHAR(40) NOT NULL,
+    clave VARCHAR(60) NOT NULL,
+    idUsuario INT NULL,
+    creadoEn DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (tipo, clave)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+`;
+
+/** Reserva el aviso; devuelve true solo la primera vez para ese (tipo, clave). */
+async function primeraVez(tipo, clave, idUsuario) {
+  const [r] = await db.query('INSERT IGNORE INTO aviso_enviado (tipo, clave, idUsuario) VALUES (?, ?, ?)', [tipo, clave, idUsuario]);
+  return r.affectedRows === 1;
+}
+
+/**
+ * Aviso a quien tiene una membresía vigente que vence en DIAS_AVISO_VENCIMIENTO días o menos,
+ * salvo que ya haya renovado (otra membresía activa que vence después). Una vez por membresía.
+ */
+async function avisarVencimientosProximos() {
+  const [porVencer] = await db.query(`
+    SELECT c.idCredito, c.creditosCisponibles AS disponibles,
+           DATE_FORMAT(c.fechaVencimiento, '%Y-%m-%d') AS vence,
+           DATEDIFF(c.fechaVencimiento, CURDATE()) AS dias,
+           u.idUsuario, p.correo, p.nombrecompleto, pl.nombre AS plan
+    FROM credito c
+    JOIN alumno a ON a.idAlumno = c.idAlumno
+    JOIN persona p ON p.idPersona = a.idPersona
+    JOIN usuario u ON u.idPersona = a.idPersona
+    LEFT JOIN pago pg ON pg.idPago = c.idPago
+    LEFT JOIN plan pl ON pl.idPlan = pg.idPlan
+    WHERE c.estado = 'ACTIVO'
+      AND u.estado = 'activo'
+      AND c.fechaVencimiento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
+      AND NOT EXISTS (
+        SELECT 1 FROM credito c2
+        WHERE c2.idAlumno = c.idAlumno AND c2.estado = 'ACTIVO'
+          AND c2.fechaVencimiento > c.fechaVencimiento
+      )
+  `, [DIAS_AVISO_VENCIMIENTO]);
+
+  let enviados = 0;
+  for (const m of porVencer) {
+    if (!(await primeraVez('vencimiento', `credito-${m.idCredito}`, m.idUsuario))) continue;
+    const cuando = m.dias <= 0 ? 'hoy' : m.dias === 1 ? 'mañana' : `en ${m.dias} días`;
+    crearNotificacion(
+      m.idUsuario,
+      'credito',
+      'Tu membresía vence pronto',
+      `Tu membresía vence ${cuando}. Renovala para seguir reservando clases.`,
+      '/alumno/creditos'
+    );
+    if (m.correo) {
+      await sendMembresiaVenceEmail(m.correo, m.nombrecompleto || 'Alumno', {
+        plan: m.plan, fechaVencimiento: m.vence, diasRestantes: m.dias, creditosDisponibles: m.disponibles,
+      }).catch(() => {});
+    }
+    enviados++;
+  }
+  if (enviados > 0) console.log(`[Cron Membresías] Aviso de vencimiento enviado a ${enviados} alumno(s).`);
+}
 
 async function procesarMembresias() {
   console.log('[Cron Membresías] Ejecutando...');
   try {
-    const dia = new Date().getDate();
+    await db.query(CREAR_TABLA_AVISOS);
+    await avisarVencimientosProximos();
 
-    // Aviso por vencer: días 1-9, enviar email + notificación a alumnos sin membresía activa
+    const hoy = new Date();
+    const dia = hoy.getDate();
+    const mes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+
+    // Recordatorio de pago: días 1-9, a alumnos sin membresía vigente. Una vez por mes.
     if (dia >= 1 && dia <= 9) {
       const diasRestantes = 10 - dia;
       const [porVencer] = await db.query(`
@@ -25,7 +99,10 @@ async function procesarMembresias() {
           AND a.idAlumno IS NOT NULL
       `);
 
+      let avisados = 0;
       for (const u of porVencer) {
+        if (!(await primeraVez('recordatorio_pago', `${u.idUsuario}-${mes}`, u.idUsuario))) continue;
+        avisados++;
         crearNotificacion(
           u.idUsuario,
           'sistema',
@@ -38,8 +115,8 @@ async function procesarMembresias() {
         }
       }
 
-      if (porVencer.length > 0) {
-        console.log(`[Cron Membresías] Aviso enviado a ${porVencer.length} alumno(s) — faltan ${diasRestantes} días para el 10.`);
+      if (avisados > 0) {
+        console.log(`[Cron Membresías] Recordatorio de pago enviado a ${avisados} alumno(s) — faltan ${diasRestantes} días para el 10.`);
       }
       return;
     }

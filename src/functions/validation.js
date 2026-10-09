@@ -47,7 +47,10 @@ const validateRegister = [
     .isLength({ min: 6 })
     .withMessage('La contraseña debe tener al menos 6 caracteres'),
 
-
+  // Sin aceptar los Términos y la Política de privacidad no se crea la cuenta (Ley 25.326, art. 5)
+  body('aceptaTerminos')
+    .custom((v) => v === true || v === 'true')
+    .withMessage('Para crear la cuenta tenés que aceptar los Términos y condiciones y la Política de privacidad'),
 ];
 
 /**

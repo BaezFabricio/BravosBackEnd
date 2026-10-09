@@ -6,6 +6,7 @@ const verificarDniExistente = require('../data/Auth/VerificarDniExistente');
 const verificarUsernameExistente = require('../data/Auth/VerificarUsernameExistente');
 const obtenerUsuarioRegistrado = require('../data/Auth/ObtenerUsuarioRegistrado');
 const insertarPersona = require('../data/Persona/InsertarPersona');
+const { registrarConsentimiento } = require('../functions/consentimiento');
 const insertarUsuario = require('../data/Usuarios/InsertarUsuario');
 const { hashPassword, comparePassword } = require('../functions/encryption');
 const { crearNotificacion, crearNotificacionAdmins } = require('../functions/notificacion.service');
@@ -78,6 +79,9 @@ exports.registro = asyncHandler(async (req, res) => {
       tokenVerificacion   
     ]);
     const usuarioId = usuarioResult.insertId;
+
+    // Constancia de la aceptación (el validador ya exigió aceptaTerminos === true)
+    await registrarConsentimiento(connection, { idUsuario: usuarioId, tipo: 'terminos_y_privacidad', ip: req.ip });
 
     // Disparar correo de activación antes de confirmar en la Base de Datos
     await sendVerificationEmail(correo, nombrecompleto, tokenVerificacion);

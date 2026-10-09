@@ -4,6 +4,10 @@ const { asyncHandler } = require('../utils/helpers')
 const { successResponse, errorResponse } = require('../utils/response')
 const { crearNotificacion } = require('../functions/notificacion.service')
 const { sendPagoConfirmadoEmail } = require('../functions/email.service')
+const { acepto, registrarConsentimiento } = require('../functions/consentimiento')
+
+// Antes de cobrar, el alumno tiene que haber aceptado los Términos y la Política de reembolsos.
+const MSJ_SIN_CONSENTIMIENTO = 'Para pagar tenés que aceptar los Términos y condiciones y la Política de reembolsos.'
 
 /**
  * Valida que la notificación venga realmente de MercadoPago.
@@ -181,16 +185,18 @@ const acreditarPago = async ({ paymentId, idAlumno, idPlan, importe }) => {
  * Crea una preferencia de pago en MercadoPago y retorna la URL de checkout.
  */
 exports.crearPreferencia = asyncHandler(async (req, res) => {
-  const { idPlan } = req.body
+  const { idPlan, aceptaCondiciones } = req.body
   const idAlumno = req.user?.idAlumno
 
   if (!idAlumno) return errorResponse(res, 'Usuario no identificado como alumno.', 'NO_ALUMNO', 403)
   if (!idPlan)   return errorResponse(res, 'idPlan es requerido.', 'MISSING_FIELDS', 400)
+  if (!acepto(aceptaCondiciones)) return errorResponse(res, MSJ_SIN_CONSENTIMIENTO, 'CONSENTIMIENTO_REQUERIDO', 400)
 
   const [planRows] = await db.query('SELECT * FROM plan WHERE idPlan = ?', [idPlan])
   if (planRows.length === 0) return errorResponse(res, 'Plan no encontrado.', 'NOT_FOUND', 404)
 
   const plan = planRows[0]
+  await registrarConsentimiento(null, { idUsuario: req.user.idUsuario, tipo: 'compra', detalle: `Plan ${plan.nombre} (${idPlan}) - QR/Mercado Pago`, ip: req.ip })
 
   // Antes de generar el QR: si ya hay un pago confirmado hoy de este plan, no se
   // ofrece un cobro nuevo. Sin esto, cada apertura del modal generaba una
@@ -373,15 +379,17 @@ exports.webhook = async (req, res) => {
  * Recibe el token de tarjeta del Payment Brick y procesa el pago.
  */
 exports.procesarTarjeta = asyncHandler(async (req, res) => {
-  const { formData, idPlan } = req.body
+  const { formData, idPlan, aceptaCondiciones } = req.body
   const idAlumno = req.user?.idAlumno
 
   if (!idAlumno) return errorResponse(res, 'Usuario no identificado como alumno.', 'NO_ALUMNO', 403)
   if (!formData || !idPlan) return errorResponse(res, 'Datos incompletos.', 'MISSING_FIELDS', 400)
+  if (!acepto(aceptaCondiciones)) return errorResponse(res, MSJ_SIN_CONSENTIMIENTO, 'CONSENTIMIENTO_REQUERIDO', 400)
 
   const [planRows] = await db.query('SELECT * FROM plan WHERE idPlan = ?', [idPlan])
   if (planRows.length === 0) return errorResponse(res, 'Plan no encontrado.', 'NOT_FOUND', 404)
   const plan = planRows[0]
+  await registrarConsentimiento(null, { idUsuario: req.user.idUsuario, tipo: 'compra', detalle: `Plan ${plan.nombre} (${idPlan}) - tarjeta`, ip: req.ip })
 
   // Corta el caso de dos pestañas: ni la guarda del botón ni la idempotencia de MP
   // alcanzan ahí, porque son dos tokens distintos y por lo tanto dos cobros válidos.
@@ -448,7 +456,8 @@ exports.procesarTarjeta = asyncHandler(async (req, res) => {
   return errorResponse(res, payment.status_detail || 'Pago rechazado.', 'PAYMENT_REJECTED', 400)
 })
 
-const DIAS_POR_VENCER = 7
+// Igual que DIAS_AVISO_VENCIMIENTO (membresiasCron.js): el panel y el correo usan el mismo criterio
+const DIAS_POR_VENCER = 3
 
 /**
  * GET /pagos/mi-historial

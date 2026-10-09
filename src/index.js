@@ -7,6 +7,7 @@ const Logger = require('./utils/logger');
 const { releaseOccupiedPort } = require('./utils/releaseOccupiedPort');
 const crearTablaAvatarUsuario = require('./data/Avatar/CrearTablaAvatarUsuario');
 const { crearTablaNotificacion } = require('./functions/notificacion.service');
+const { crearTablasLegales } = require('./functions/consentimiento');
 const { iniciarCronPublicacion } = require('./functions/publicacionCron');
 const { iniciarCronMembresias } = require('./functions/membresiasCron');
 
@@ -36,6 +37,7 @@ async function startServer() {
       await db.initializePool();
       await db.query(crearTablaAvatarUsuario);
       await crearTablaNotificacion();
+      await crearTablasLegales();
       // Migraciones independientes — fallan silenciosamente si la columna ya existe
       // Tabla de documentos de alumnos
       try {

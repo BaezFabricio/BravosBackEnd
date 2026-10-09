@@ -279,7 +279,125 @@ const sendPagoConfirmadoEmail = async (email, nombre, { plan, importe, creditos,
   }
 };
 
+/**
+ * Botón de arrepentimiento (Res. SCI 424/2020): constancia con el código para quien lo pidió
+ * y aviso al correo del box con los datos de la solicitud.
+ */
+const sendArrepentimientoEmails = async ({ codigo, nombre, dni, correo, telefono, fechaCompra, detalle }) => {
+  const fila = (label, valor) => valor ? `
+    <tr>
+      <td style="padding: 8px 0; font-size: 13px; color: #777; border-bottom: 1px solid #eee;">${label}</td>
+      <td style="padding: 8px 0; font-size: 14px; color: #111; font-weight: bold; text-align: right; border-bottom: 1px solid #eee;">${escapeHtml(valor)}</td>
+    </tr>` : '';
+  const tabla = `
+    <table style="width: 100%; border-collapse: collapse; margin: 16px 0 24px 0;">
+      ${fila('Código', codigo)}
+      ${fila('Nombre', nombre)}
+      ${fila('DNI', dni)}
+      ${fila('Correo', correo)}
+      ${fila('Teléfono', telefono)}
+      ${fila('Fecha de la compra', fechaCompra)}
+      ${fila('Detalle', detalle)}
+    </table>`;
+
+  const alCliente = {
+    from: `"Bravos Box" <${process.env.SMTP_USER}>`,
+    to: correo,
+    subject: `Recibimos tu solicitud de arrepentimiento — código ${codigo}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e0e0e0;">
+        <div style="background: #111111; padding: 24px 32px; text-align: center;">
+          <p style="color: #a3e635; font-size: 11px; font-weight: 900; letter-spacing: 3px; text-transform: uppercase; margin: 0;">Bravos Box</p>
+          <h1 style="color: #ffffff; font-size: 22px; font-weight: 900; margin: 8px 0 0 0;">Solicitud de arrepentimiento recibida</h1>
+        </div>
+        <div style="padding: 28px 32px;">
+          <p style="font-size: 15px; color: #333; margin: 0 0 12px 0;">Hola <strong>${escapeHtml(nombre)}</strong>,</p>
+          <p style="font-size: 14px; color: #555; line-height: 1.6; margin: 0;">
+            Registramos tu pedido para revocar la compra. Guardá este código: es la constancia de tu solicitud.
+            Te vamos a contactar para coordinar el reintegro, que se hace por el mismo medio con el que pagaste.
+          </p>
+          ${tabla}
+          <p style="font-size: 12px; color: #888; line-height: 1.5; margin: 0;">
+            Tenés derecho a revocar la aceptación dentro de los 10 días corridos desde la compra, sin costo ni responsabilidad
+            (Ley 24.240, art. 34, y Código Civil y Comercial, arts. 1110 a 1116).
+          </p>
+        </div>
+      </div>`,
+  };
+
+  const alBox = {
+    from: `"Bravos Box - Sistema" <${process.env.SMTP_USER}>`,
+    to: process.env.SMTP_USER,
+    replyTo: correo,
+    subject: `[Arrepentimiento] ${codigo} — ${nombre}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px;">
+        <p style="font-size: 14px; color: #333;">Se recibió una solicitud por el botón de arrepentimiento. Hay que responderla y, si corresponde, reintegrar el pago.</p>
+        ${tabla}
+      </div>`,
+  };
+
+  for (const mail of [alCliente, alBox]) {
+    try {
+      await transporter.sendMail(mail);
+    } catch (error) {
+      console.error(`[Email Error] Arrepentimiento ${codigo}:`, error.message);
+    }
+  }
+};
+
+/**
+ * Aviso de que una membresía vigente vence en pocos días (mismo criterio que el panel).
+ */
+const sendMembresiaVenceEmail = async (email, nombre, { plan, fechaVencimiento, diasRestantes, creditosDisponibles }) => {
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  // fechaVencimiento llega como 'YYYY-MM-DD': se arma a mediodía para no correr el día por la zona horaria
+  const fecha = new Date(`${fechaVencimiento}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const cuando = diasRestantes <= 0 ? 'hoy' : diasRestantes === 1 ? 'mañana' : `en ${diasRestantes} días`;
+
+  const mailOptions = {
+    from: `"Bravos Box" <${process.env.SMTP_USER}>`,
+    to: email,
+    subject: `Tu membresía vence ${cuando} (${fecha})`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e0e0e0;">
+        <div style="background: #111111; padding: 28px 32px; text-align: center;">
+          <p style="color: #a3e635; font-size: 11px; font-weight: 900; letter-spacing: 3px; text-transform: uppercase; margin: 0 0 8px 0;">Bravos Box</p>
+          <h1 style="color: #ffffff; font-size: 24px; font-weight: 900; text-transform: uppercase; margin: 0; letter-spacing: 1px;">Tu membresía vence ${cuando}</h1>
+        </div>
+        <div style="padding: 32px;">
+          <p style="font-size: 16px; color: #333; margin: 0 0 16px 0;">Hola <strong>${escapeHtml(nombre)}</strong>,</p>
+          <p style="font-size: 15px; color: #555; line-height: 1.6; margin: 0 0 20px 0;">
+            Tu plan <strong style="color: #111;">${escapeHtml(plan || 'actual')}</strong> vence el <strong style="color: #111;">${fecha}</strong>.
+            ${creditosDisponibles > 0 ? `Todavía te quedan <strong>${Number(creditosDisponibles)} crédito${Number(creditosDisponibles) !== 1 ? 's' : ''}</strong>: usalos antes de esa fecha, porque no se acumulan.` : ''}
+          </p>
+          <p style="font-size: 15px; color: #555; line-height: 1.6; margin: 0 0 24px 0;">
+            Renová tu membresía para seguir reservando clases sin cortes.
+          </p>
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${frontendUrl}/alumno/creditos" style="background-color: #a3e635; color: #000; padding: 14px 40px; text-decoration: none; font-size: 14px; font-weight: 900; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">
+              Renovar membresía →
+            </a>
+          </div>
+        </div>
+        <div style="background: #f5f5f5; padding: 16px 32px; text-align: center;">
+          <p style="font-size: 11px; color: #999; margin: 0;">Este correo fue generado automáticamente por Bravos Box. No respondas este mensaje.</p>
+        </div>
+      </div>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`[Email] Aviso de vencimiento enviado a: ${email}`);
+  } catch (error) {
+    console.error(`[Email Error] Aviso de vencimiento a ${email}:`, error.message);
+  }
+};
+
 module.exports = {
+  sendMembresiaVenceEmail,
+  sendArrepentimientoEmails,
   sendVerificationEmail,
   sendRecoveryEmail,
   sendClaseDisponibleEmail,

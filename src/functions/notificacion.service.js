@@ -20,8 +20,15 @@ async function crearNotificacion(idUsuario, tipo, titulo, mensaje, link = null) 
  */
 async function crearNotificacionAdmins(tipo, titulo, mensaje, link = null) {
   try {
+    // Administradores = perfiles con permiso de modificar usuarios (los perfiles se crean
+    // desde el panel, así que no se puede depender de un id fijo como el 1).
     const [admins] = await db.query(
-      "SELECT u.idUsuario FROM usuario u WHERE u.idPerfil = 1 AND u.estado = 'activo'"
+      `SELECT DISTINCT u.idUsuario
+       FROM usuario u
+       LEFT JOIN perfilpermiso pp ON pp.idPerfil = u.idPerfil
+       LEFT JOIN permiso p ON p.idPermiso = pp.idPermiso
+       WHERE u.estado = 'activo'
+         AND (u.idPerfil = 1 OR (LOWER(p.modulo) = 'usuarios' AND LOWER(p.accion) = 'modificacion'))`
     );
     for (const admin of admins) {
       await crearNotificacion(admin.idUsuario, tipo, titulo, mensaje, link);

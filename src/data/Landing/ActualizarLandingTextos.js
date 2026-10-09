@@ -8,6 +8,8 @@ const SECCION_MAP = {
            'claseCard3Titulo', 'claseCard3Descripcion', 'claseCard3Icono'],
   contacto: ['direccion', 'telefono', 'email', 'instagram',
              'horario_semana', 'horario_sabado', 'horario_domingo', 'mapaUrl', 'whatsapp'],
+  // Titular del servicio, para las páginas legales (Ley 24.240 exige identificar al proveedor)
+  legal: ['legalTitular', 'legalCuit', 'legalDomicilio'],
 };
 
 function resolverSeccion(clave) {

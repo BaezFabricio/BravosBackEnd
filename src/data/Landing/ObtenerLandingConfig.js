@@ -38,6 +38,10 @@ const ObtenerLandingConfig = async () => {
       horario_domingo: 'Domingo: Cerrado',
       mapaUrl: '',
       whatsapp: '',
+      // Datos legales del titular (páginas de términos y privacidad)
+      legalTitular: '',
+      legalCuit: '',
+      legalDomicilio: '',
       // Datos bancarios para transferencia
       bancoEntidad: '',
       titularCuenta: '',

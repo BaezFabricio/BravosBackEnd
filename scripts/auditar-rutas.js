@@ -32,6 +32,7 @@ const PUBLICAS = {
   'POST /api/vv1/auth/reenviar-verificacion': 'Reenviar el correo de verificación',
   'POST /api/vv1/pagos/webhook': 'Notificaciones de Mercado Pago: se valida la firma HMAC dentro del controlador',
   'GET /api/vv1/pagos/planes': 'Catálogo de planes y precios (público)',
+  'POST /api/vv1/arrepentimiento': 'Botón de arrepentimiento: la ley exige que funcione sin registrarse (con límite por IP)',
   'GET /api/vv1/clases/disponibles': 'Grilla de clases visible en la web pública',
   'GET /landing/config': 'Contenido de la web pública y datos de contacto',
   'GET /health': 'Chequeo de que el servidor responde (no devuelve datos)',
@@ -95,8 +96,9 @@ function recorrer(stack, prefijo, autenticadaAntes, salida) {
       }
     } else if (layer.name === 'router' && layer.handle && layer.handle.stack) {
       recorrer(layer.handle.stack, prefijo + prefijoDe(layer), autenticada, salida);
-    } else if (esAuth(layer.handle)) {
-      // router.use(authenticateToken): protege todas las rutas que vienen después en ese router
+    } else if (esAuth(layer.handle) && prefijoDe(layer).replace(/\/$/, '') === '') {
+      // router.use(authenticateToken) sin ruta: protege todas las rutas que vienen después en ese router.
+      // Con ruta (app.use('/uploads/documentos', authenticateToken, ...)) solo cubre esa carpeta, no el resto.
       autenticada = true;
     }
   }

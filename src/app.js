@@ -24,7 +24,18 @@ app.use(corsMiddleware);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Archivos estáticos (videos de ejercicios)
+// Documentos de alumnos (comprobantes y datos de salud): solo su dueño o un administrador.
+// Va antes del estático general para que /uploads/documentos nunca se sirva sin sesión.
+const { authenticateToken } = require('./middlewares/auth.middleware');
+const { soloDuenoOAdministrador } = require('./middlewares/documentosPrivados.middleware');
+app.use(
+  '/uploads/documentos',
+  authenticateToken,
+  soloDuenoOAdministrador,
+  express.static(path.join(__dirname, '../uploads/documentos'), { fallthrough: false })
+);
+
+// Archivos estáticos (videos de ejercicios, imágenes de la web)
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 

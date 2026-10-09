@@ -3,7 +3,16 @@ const path = require('path');
 const fs = require('fs');
 const { crearNotificacionAdmins } = require('../functions/notificacion.service');
 
+const { acepto, registrarConsentimiento } = require('../functions/consentimiento');
+
 const TIPOS_VALIDOS = ['comprobante_transferencia', 'certificado_medico', 'declaracion_jurada'];
+// Contienen datos de salud: son datos sensibles (Ley 25.326, art. 7) y piden consentimiento expreso.
+const TIPOS_SALUD = ['certificado_medico', 'declaracion_jurada'];
+
+// multer ya guardó el archivo antes de llegar acá: si se rechaza el pedido, no tiene que quedar en el disco.
+function descartarArchivo(file) {
+  if (file?.path) fs.unlink(file.path, () => {});
+}
 
 /**
  * POST /documentos/subir
@@ -13,17 +22,29 @@ async function subirDocumento(req, res) {
   try {
     if (!req.file) return res.status(400).json({ message: 'No se recibió ningún archivo.' });
 
-    const { tipo } = req.body;
+    const { tipo, consienteDatosSalud } = req.body;
     if (!TIPOS_VALIDOS.includes(tipo)) {
+      descartarArchivo(req.file);
       return res.status(400).json({ message: 'Tipo de documento inválido.' });
+    }
+    if (TIPOS_SALUD.includes(tipo) && !acepto(consienteDatosSalud)) {
+      descartarArchivo(req.file);
+      return res.status(400).json({
+        message: 'Para subir este documento tenés que autorizar el uso de tus datos de salud.',
+        errorCode: 'CONSENTIMIENTO_REQUERIDO',
+      });
     }
 
     const idUsuario = req.user.idUsuario || req.user.id;
 
     // Obtener idPersona del usuario
     const [rows] = await db.query('SELECT idPersona FROM usuario WHERE idUsuario = ?', [idUsuario]);
-    if (!rows.length) return res.status(404).json({ message: 'Usuario no encontrado.' });
+    if (!rows.length) { descartarArchivo(req.file); return res.status(404).json({ message: 'Usuario no encontrado.' }); }
     const idPersona = rows[0].idPersona;
+
+    if (TIPOS_SALUD.includes(tipo)) {
+      await registrarConsentimiento(null, { idUsuario, tipo: 'datos_salud', detalle: tipo, ip: req.ip });
+    }
 
     const urlArchivo = `/uploads/documentos/${req.file.filename}`;
     const nombreArchivo = req.file.originalname;
