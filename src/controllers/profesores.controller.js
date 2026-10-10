@@ -118,7 +118,7 @@ exports.getHorariosPorClase = asyncHandler(async (req, res) => {
 exports.getRutinaPorClase = asyncHandler(async (req, res) => {
   const { idClase } = req.params;
 
-  const [rutinaRows] = await db.query('SELECT * FROM rutina WHERE idClase = ?', [idClase]);
+  const [rutinaRows] = await db.query('SELECT idRutina, nombre, descripcion, nivel, duracion, idProfesor, idClase, categoria FROM rutina WHERE idClase = ?', [idClase]);
 
   if (rutinaRows.length === 0) {
     return successResponse(res, 'La clase no tiene rutina asignada.', null);

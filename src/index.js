@@ -68,6 +68,8 @@ async function startServer() {
         // El registro crea las cuentas como 'pendiente' (sin perfil hasta que el admin asigne uno);
         // la base no tenía ese valor y, en modo estricto, el registro fallaba.
         `ALTER TABLE usuario MODIFY COLUMN estado ENUM('activo','inactivo','suspendido','pendiente') DEFAULT 'activo'`,
+        // Versión de sesión: al cambiar la contraseña sube y se cierran las sesiones abiertas
+        `ALTER TABLE usuario ADD COLUMN sesion_version INT NOT NULL DEFAULT 0`,
       ];
       for (const sql of migraciones) {
         try { await db.query(sql); } catch { /* columna ya existe */ }

@@ -3,6 +3,7 @@ const { errorResponse } = require('../utils/response');
 const { NOMBRE_COOKIE, leerCookie } = require('../functions/sesionCookie');
 const { corsOptions } = require('../config/cors');
 const envConfig = require('../config/env');
+const { versionActual } = require('../functions/versionSesion');
 
 const METODOS_SEGUROS = ['GET', 'HEAD', 'OPTIONS'];
 const PATRON_DEV = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):\d+$/;
@@ -12,7 +13,7 @@ const origenPermitido = (origin) =>
 /**
  * Middleware para verificar autenticación (JWT)
  */
-function authenticateToken(req, res, next) {
+async function authenticateToken(req, res, next) {
   // La sesión normal viaja en una cookie httpOnly; el encabezado Bearer queda para clientes que no son el navegador.
   const cookieToken = leerCookie(req.headers, NOMBRE_COOKIE);
   const token = cookieToken || extractToken(req.headers);
@@ -30,13 +31,27 @@ function authenticateToken(req, res, next) {
     return errorResponse(res, 'Token ausente. Por favor proporciona un token válido', 'NO_TOKEN', 401);
   }
 
+  let decoded;
   try {
-    const decoded = verifyToken(token);
-    req.user = decoded;
-    next();
+    decoded = verifyToken(token);
   } catch (error) {
     return errorResponse(res, error.message, 'INVALID_TOKEN', 401);
   }
+
+  // Si la contraseña cambió después de emitir este token, la sesión ya no vale
+  // (los tokens anteriores a este control no traen "sv": cuentan como versión 0)
+  try {
+    const vigente = await versionActual(decoded.idUsuario);
+    if (vigente === null || (Number(decoded.sv) || 0) !== vigente) {
+      return errorResponse(res, 'Tu sesión se cerró. Volvé a iniciar sesión.', 'SESSION_REVOKED', 401);
+    }
+  } catch (error) {
+    console.error('Error al validar la sesión:', error.message);
+    return errorResponse(res, 'No se pudo validar la sesión', 'INTERNAL_SERVER_ERROR', 500);
+  }
+
+  req.user = decoded;
+  next();
 }
 
 /**

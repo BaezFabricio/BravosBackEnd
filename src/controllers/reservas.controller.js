@@ -544,8 +544,9 @@ exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
       SELECT
         p.fechaPago AS fecha,
         CONCAT('Renovación membresía: ', pl.nombre) AS descripcion,
-        'Histórico' AS estado,
-        CONCAT('+', c.totalCreditos) AS creditos
+        -- Un abono anulado por el admin queda en el historial, pero no suma créditos
+        CASE WHEN c.estado = 'CANCELADO' THEN 'Anulado' ELSE 'Histórico' END AS estado,
+        CASE WHEN c.estado = 'CANCELADO' THEN '0' ELSE CONCAT('+', c.totalCreditos) END AS creditos
       FROM credito c
       INNER JOIN alumno a ON c.idAlumno = a.idAlumno
       INNER JOIN usuario u ON a.idPersona = u.idPersona

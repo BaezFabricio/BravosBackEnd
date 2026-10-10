@@ -18,6 +18,7 @@ const { sendVerificationEmail } = require('../functions/email.service');
 const { sendRecoveryEmail } = require('../functions/email.service'); 
 // Almacenamiento temporal en memoria para códigos de recuperación (dev)
 const recuperacion = require('../functions/recuperacion');
+const versionSesion = require('../functions/versionSesion');
 
 /**
  * POST /api/auth/registro
@@ -146,7 +147,7 @@ exports.login = asyncHandler(async (req, res) => {
   }
 
   // 1. 🟢 CONTROL DE ESTADO EXPLICITO: Si obtenerDatosLogin no traía el estado, lo buscamos acá
-  const [checkUser] = await db.query('SELECT estado FROM usuario WHERE idUsuario = ?', [usuario.idUsuario]);
+  const [checkUser] = await db.query('SELECT estado, sesion_version FROM usuario WHERE idUsuario = ?', [usuario.idUsuario]);
   const estadoReal = checkUser[0]?.estado || usuario.estado || 'activo';
 
   if (estadoReal === 'inactivo') {
@@ -205,7 +206,8 @@ exports.login = asyncHandler(async (req, res) => {
     idPerfil: usuario.idPerfil,
     perfil: usuario.nombrePerfil,
     idProfesor,
-    idAlumno
+    idAlumno,
+    sv: Number(checkUser[0]?.sesion_version) || 0, // versión de sesión: cambia al cambiar la contraseña
   });
 
   // 4. 🚀 Devolvemos la respuesta impecable al Frontend
@@ -460,11 +462,13 @@ exports.recuperarContrasena = asyncHandler(async (req, res) => {
         return errorResponse(res, RESPUESTA_ENLACE_INVALIDO[0], RESPUESTA_ENLACE_INVALIDO[1], 400);
       }
       // El enlace llegó al correo: eso también confirma que el correo es suyo
+      // También sube la versión de sesión: se cierran todas las sesiones abiertas con la contraseña vieja
       await conexion.query(
-        'UPDATE usuario SET contrasena = ?, correo_verificado = 1 WHERE idUsuario = ?',
+        'UPDATE usuario SET contrasena = ?, correo_verificado = 1, sesion_version = sesion_version + 1 WHERE idUsuario = ?',
         [hashed, vigente.idUsuario]
       );
       await conexion.commit();
+      versionSesion.olvidarVersion(vigente.idUsuario);
     } catch (error) {
       await conexion.rollback();
       throw error;
@@ -494,8 +498,10 @@ exports.cambiarContrasena = asyncHandler(async (req, res) => {
     return errorResponse(res, 'La contraseña actual y la nueva son requeridas', 'MISSING_PASSWORD', 400);
   }
 
-  if (contrasenaNueva.length < 6) {
-    return errorResponse(res, 'La nueva contraseña debe tener al menos 6 caracteres', 'PASSWORD_TOO_SHORT', 400);
+  // Misma exigencia que al recuperar la contraseña (8+ caracteres, mayúscula, minúscula y número)
+  const problema = recuperacion.problemaContrasena(contrasenaNueva);
+  if (problema) {
+    return errorResponse(res, problema, 'WEAK_PASSWORD', 400);
   }
 
   // Obtener el usuario y su contraseña actual
@@ -510,7 +516,7 @@ exports.cambiarContrasena = asyncHandler(async (req, res) => {
   // Verificar que la contraseña actual es correcta
   const esValida = await comparePassword(contrasenaActual, usuario.contrasena);
   if (!esValida) {
-    return errorResponse(res, 'Ruta no encontrada', 'INVALID_PASSWORD', 401);
+    return errorResponse(res, 'La contraseña actual no es correcta', 'INVALID_PASSWORD', 401);
   }
 
   // Hashear la nueva contraseña
@@ -518,6 +524,11 @@ exports.cambiarContrasena = asyncHandler(async (req, res) => {
 
   // Actualizar la contraseña
   await db.query('UPDATE usuario SET contrasena = ? WHERE idUsuario = ?', [contrasenaNuevaHasheada, idUsuarioReal]);
+
+  // Se cierran las sesiones de los otros dispositivos; esta se renueva con la versión nueva
+  const versionNueva = await versionSesion.invalidarSesiones(idUsuarioReal);
+  const { iat, exp, ...datosSesion } = req.user; // eslint-disable-line no-unused-vars
+  guardarSesion(res, generateToken({ ...datosSesion, sv: versionNueva }));
 
   return successResponse(res, 'Contraseña cambiada exitosamente', null, 200);
 

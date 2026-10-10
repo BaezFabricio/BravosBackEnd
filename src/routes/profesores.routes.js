@@ -10,7 +10,8 @@ router.get('/mis-clases', authenticateToken, requirePermission('profesor', 'cons
 router.get('/', authenticateToken, requireAnyPermission([['profesor', 'consulta'], ['clases', 'alta'], ['clases', 'modificacion']]), profesoresController.getAll);
 router.get('/clases/:idClase/alumnos', authenticateToken, requirePermission('profesor', 'consulta'), profesoresController.getAlumnosPorClase);
 router.get('/clases/:idClase/horarios', authenticateToken, requirePermission('profesor', 'consulta'), profesoresController.getHorariosPorClase);
-router.get('/clases/:idClase/rutina', authenticateToken, requireAnyPermission([['profesor', 'consulta'], ['alumno_reservas', 'consulta']]), profesoresController.getRutinaPorClase);
+// Solo profesores: los alumnos ven la rutina de sus propias reservas con GET /reservas/:id/rutina
+router.get('/clases/:idClase/rutina', authenticateToken, requirePermission('profesor', 'consulta'), profesoresController.getRutinaPorClase);
 router.put('/asistencias/:idReserva', authenticateToken, requirePermission('profesor', 'modificacion'), profesoresController.marcarAsistencia);
 
 module.exports = router;
