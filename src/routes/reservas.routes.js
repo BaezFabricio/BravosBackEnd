@@ -11,6 +11,12 @@ router.post('/', authenticateToken, requireAnyPermission([['alumno_reservas', 'a
 
 router.get('/mis-reservas', authenticateToken, requireAnyPermission([['alumno_reservas', 'consulta'], ['reservas', 'consulta']]), reservasController.obtenerMisReservas);
 
+// Rutinas de las clases que el propio alumno tiene reservadas (la identidad sale del token)
+router.get('/mis-rutinas', authenticateToken, requireAnyPermission([['alumno_reservas', 'consulta'], ['reservas', 'consulta']]), reservasController.obtenerMisRutinas);
+
+// Rutina de una reserva propia (el controlador verifica que la reserva sea de quien consulta)
+router.get('/:id/rutina', authenticateToken, requireAnyPermission([['alumno_reservas', 'consulta'], ['reservas', 'consulta']]), reservasController.obtenerRutinaDeMiReserva);
+
 router.get('/admin/usuario/:idUsuario', authenticateToken, requirePermission('Reservas', 'consulta'), reservasController.obtenerReservasDeUsuario);
 
 

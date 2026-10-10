@@ -62,30 +62,47 @@ const sendVerificationEmail = async (email, nombre, token) => {
 };
 
 /**
- * Enviar código de recuperación de contraseña (6 dígitos)
+ * Enlace para crear una contraseña nueva (token de un solo uso; ver functions/recuperacion.js).
+ * El token no se escribe en los registros del servidor.
  */
-const sendRecoveryEmail = async (email, nombre, code) => {
+const sendRecoveryEmail = async (email, nombre, token, minutos) => {
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const enlace = `${frontendUrl}/recuperar-contrasena?token=${encodeURIComponent(token)}`;
   const mailOptions = {
-    from: `"Bravos Gym 🏋️‍♂️" <${process.env.SMTP_USER}>`,
+    from: `"Bravos Box" <${process.env.SMTP_USER}>`,
     to: email,
-    subject: 'Código de recuperación de contraseña - Bravos Gym',
+    subject: 'Creá tu nueva contraseña — Bravos Box',
     html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #111; border-radius: 10px; background-color: #ffffff;">
-        <h2 style="color: #111; text-align: center;">Código de recuperación</h2>
-        <p style="font-size: 16px; color: #333;">Hola ${nombre || ''},</p>
-        <p style="font-size: 16px; color: #333;">Usa el siguiente código para recuperar tu contraseña. Es válido por 15 minutos:</p>
-        <div style="text-align: center; margin: 20px 0; font-size: 22px; font-weight: bold;">${code}</div>
-        <p style="font-size: 14px; color: #666;">Si no pediste recuperar la contraseña, ignora este correo.</p>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e0e0e0;">
+        <div style="background: #111111; padding: 28px 32px; text-align: center;">
+          <p style="color: #a3e635; font-size: 11px; font-weight: 900; letter-spacing: 3px; text-transform: uppercase; margin: 0 0 8px 0;">Bravos Box</p>
+          <h1 style="color: #ffffff; font-size: 22px; font-weight: 900; text-transform: uppercase; margin: 0;">Recuperar contraseña</h1>
+        </div>
+        <div style="padding: 32px;">
+          <p style="font-size: 16px; color: #333; margin: 0 0 16px 0;">Hola <strong>${escapeHtml(nombre || '')}</strong>,</p>
+          <p style="font-size: 15px; color: #555; line-height: 1.6; margin: 0 0 24px 0;">
+            Recibimos un pedido para cambiar la contraseña de tu cuenta. Tocá el botón para crear una nueva.
+            El enlace sirve <strong>una sola vez</strong> y vence en <strong>${minutos} minutos</strong>.
+          </p>
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${enlace}" style="background-color: #a3e635; color: #000; padding: 14px 36px; text-decoration: none; font-size: 14px; font-weight: 900; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">
+              Crear nueva contraseña
+            </a>
+          </div>
+          <p style="font-size: 13px; color: #888; line-height: 1.5; margin: 0;">
+            Si no pediste cambiar la contraseña, ignorá este correo: tu contraseña actual sigue funcionando.
+          </p>
+        </div>
       </div>
     `
   };
 
   try {
     await transporter.sendMail(mailOptions);
-    console.log(`[Email Real] Código de recuperación enviado a: ${email}`);
+    console.log(`[Email] Enlace de recuperación enviado a: ${email}`);
   } catch (error) {
-    console.error('[Email Error] Falla en el envío SMTP (recovery):', error);
-    throw new Error('No se pudo enviar el código de recuperación');
+    console.error('[Email Error] Falla en el envío SMTP (recuperación):', error.message);
+    throw new Error('No se pudo enviar el correo de recuperación');
   }
 }
 

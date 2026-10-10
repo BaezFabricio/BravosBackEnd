@@ -17,7 +17,7 @@ const { successResponse, errorResponse } = require('../utils/response');
 const { sendVerificationEmail } = require('../functions/email.service'); 
 const { sendRecoveryEmail } = require('../functions/email.service'); 
 // Almacenamiento temporal en memoria para códigos de recuperación (dev)
-const recoveryStore = new Map(); // key: email, value: { code, expiresAt }
+const recuperacion = require('../functions/recuperacion');
 
 /**
  * POST /api/auth/registro
@@ -401,102 +401,76 @@ exports.reenviarVerificacion = asyncHandler(async (req, res) => {
 module.exports = exports;
 
 /**
- * POST /api/auth/recuperar-contrasena
- * Maneja acciones: send_code, verify_code, reset_password
+ * POST /api/auth/recuperar-contrasena  (pública a propósito)
+ * Recuperación con enlace de un solo uso (ver functions/recuperacion.js). Acciones:
+ *  - send_link { email }: si la cuenta existe, envía el enlace. Siempre responde lo mismo, para que
+ *    nadie pueda averiguar qué correos están registrados.
+ *  - check_token { token }: dice si el enlace sigue sirviendo (para mostrar el formulario o un aviso).
+ *  - reset_password { token, password }: cambia la contraseña y anula el enlace.
  */
-// Recuperación de contraseña: el código de 6 dígitos tiene un millón de combinaciones, así que sin
-// límite de intentos se puede adivinar en minutos y quedarse con la cuenta de cualquiera.
-const MAX_INTENTOS_CODIGO = 5;          // fallos permitidos por código; al pasarse hay que pedir uno nuevo
-const ESPERA_ENTRE_ENVIOS_MS = 60 * 1000;
-const RESPUESTA_CODIGO_INVALIDO = ['Código inválido o expirado. Pedí uno nuevo.', 'INVALID_CODE'];
+const RESPUESTA_ENVIO = 'Si el correo está registrado, te enviamos un enlace para crear una nueva contraseña.';
+const RESPUESTA_ENLACE_INVALIDO = ['El enlace no es válido o ya venció. Pedí uno nuevo.', 'INVALID_TOKEN'];
 
 exports.recuperarContrasena = asyncHandler(async (req, res) => {
-  const { email, action, code, password } = req.body;
+  const { action } = req.body || {};
 
-  if (!email) return errorResponse(res, 'El correo es requerido', 'MISSING_EMAIL', 400);
+  if (action === 'send_link') {
+    const email = String(req.body.email || '').trim();
+    if (!email) return errorResponse(res, 'El correo es requerido', 'MISSING_EMAIL', 400);
 
-  // Comprobamos si existe la persona/usuario
-  const [personas] = await db.query('SELECT p.*, u.idUsuario FROM persona p LEFT JOIN usuario u ON p.idPersona = u.idPersona WHERE p.correo = ?', [email]);
-  if (!personas || personas.length === 0) {
-    // Misma respuesta que si existiera, para que nadie pueda averiguar qué correos están registrados
-    if (action === 'send_code') return successResponse(res, 'Si el correo está registrado, te enviamos un código', null, 200);
-    return errorResponse(res, RESPUESTA_CODIGO_INVALIDO[0], RESPUESTA_CODIGO_INVALIDO[1], 400);
+    const [cuentas] = await db.query(
+      `SELECT u.idUsuario, p.nombrecompleto
+       FROM persona p INNER JOIN usuario u ON u.idPersona = p.idPersona
+       WHERE p.correo = ?
+       LIMIT 1`,
+      [email]
+    );
+    if (cuentas.length === 0) return successResponse(res, RESPUESTA_ENVIO, null, 200);
+
+    const cuenta = cuentas[0];
+    if (await recuperacion.pidioHacePoco(cuenta.idUsuario)) {
+      return errorResponse(res, 'Ya te enviamos un enlace hace instantes. Esperá un minuto para pedir otro.', 'LINK_COOLDOWN', 429);
+    }
+    const token = await recuperacion.crearToken(cuenta.idUsuario);
+    await sendRecoveryEmail(email, cuenta.nombrecompleto, token, recuperacion.DURACION_MIN);
+    return successResponse(res, RESPUESTA_ENVIO, null, 200);
   }
 
-  const persona = personas[0];
-
-  if (action === 'send_code') {
-    // No se puede pedir un código nuevo cada segundo (evita llenar de correos a la víctima)
-    const previo = recoveryStore.get(email);
-    if (previo && previo.creadoEn && Date.now() - previo.creadoEn < ESPERA_ENTRE_ENVIOS_MS) {
-      return errorResponse(res, 'Ya te enviamos un código hace instantes. Esperá un minuto para pedir otro.', 'CODE_COOLDOWN', 429);
-    }
-
-    // Generar código de 6 dígitos
-    const newCode = crypto.randomInt(100000, 1000000).toString();
-    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutos
-
-    recoveryStore.set(email, { code: newCode, expiresAt, creadoEn: Date.now(), intentos: 0 });
-
-    // Enviamos el correo con el código
-    await sendRecoveryEmail(email, persona.nombrecompleto, newCode);
-
-    return successResponse(res, 'Si el correo está registrado, te enviamos un código', null, 200);
-  }
-
-  if (action === 'verify_code') {
-    const entry = recoveryStore.get(email);
-    if (!entry) return errorResponse(res, 'Código no encontrado o expirado', 'CODE_NOT_FOUND', 400);
-    if (Date.now() > entry.expiresAt) {
-      recoveryStore.delete(email);
-      return errorResponse(res, 'El código expiró', 'CODE_EXPIRED', 400);
-    }
-    if (entry.code !== String(code)) {
-      entry.intentos = (entry.intentos || 0) + 1;
-      if (entry.intentos >= MAX_INTENTOS_CODIGO) {
-        recoveryStore.delete(email);
-        return errorResponse(res, 'Demasiados intentos con un código incorrecto. Pedí un código nuevo.', 'CODE_LOCKED', 429);
-      }
-      return errorResponse(res, 'Código inválido', 'INVALID_CODE', 400);
-    }
-
-    return successResponse(res, 'Código verificado', null, 200);
+  if (action === 'check_token') {
+    const vigente = await recuperacion.buscarTokenVigente(req.body.token);
+    if (!vigente) return errorResponse(res, RESPUESTA_ENLACE_INVALIDO[0], RESPUESTA_ENLACE_INVALIDO[1], 400);
+    return successResponse(res, 'Enlace válido', null, 200);
   }
 
   if (action === 'reset_password') {
-    if (!password) return errorResponse(res, 'La nueva contraseña es requerida', 'MISSING_PASSWORD', 400);
+    const { token, password } = req.body;
+    const problema = recuperacion.problemaContrasena(password);
+    if (problema) return errorResponse(res, problema, 'WEAK_PASSWORD', 400);
 
-    const entry = recoveryStore.get(email);
-    if (!entry) return errorResponse(res, 'Código no encontrado o expirado', 'CODE_NOT_FOUND', 400);
-    if (Date.now() > entry.expiresAt) {
-      recoveryStore.delete(email);
-      return errorResponse(res, 'El código expiró', 'CODE_EXPIRED', 400);
-    }
-    if (entry.code !== String(code)) {
-      entry.intentos = (entry.intentos || 0) + 1;
-      if (entry.intentos >= MAX_INTENTOS_CODIGO) {
-        recoveryStore.delete(email);
-        return errorResponse(res, 'Demasiados intentos con un código incorrecto. Pedí un código nuevo.', 'CODE_LOCKED', 429);
-      }
-      return errorResponse(res, 'Código inválido', 'INVALID_CODE', 400);
-    }
+    const vigente = await recuperacion.buscarTokenVigente(token);
+    if (!vigente) return errorResponse(res, RESPUESTA_ENLACE_INVALIDO[0], RESPUESTA_ENLACE_INVALIDO[1], 400);
 
-    // Hasheamos la nueva contraseña
     const hashed = await hashPassword(password);
-
-    // Actualizamos contraseña y verificamos la cuenta (el código confirma propiedad del correo)
-    const [updateResult] = await db.query(
-      'UPDATE usuario u JOIN persona p ON u.idPersona = p.idPersona SET u.contrasena = ?, u.correo_verificado = 1 WHERE p.correo = ?',
-      [hashed, email]
-    );
-
-    if (updateResult.affectedRows === 0) {
-      return errorResponse(res, 'No se encontró la cuenta asociada a ese correo', 'USER_NOT_FOUND', 404);
+    const conexion = await db.getConnection();
+    try {
+      await conexion.beginTransaction();
+      // Se anula primero: si llegan dos pedidos con el mismo enlace, solo uno cambia la contraseña
+      if (!(await recuperacion.consumirToken(vigente.idRecuperacion, conexion))) {
+        await conexion.rollback();
+        return errorResponse(res, RESPUESTA_ENLACE_INVALIDO[0], RESPUESTA_ENLACE_INVALIDO[1], 400);
+      }
+      // El enlace llegó al correo: eso también confirma que el correo es suyo
+      await conexion.query(
+        'UPDATE usuario SET contrasena = ?, correo_verificado = 1 WHERE idUsuario = ?',
+        [hashed, vigente.idUsuario]
+      );
+      await conexion.commit();
+    } catch (error) {
+      await conexion.rollback();
+      throw error;
+    } finally {
+      conexion.release();
     }
-
-    // Limpiamos el código
-    recoveryStore.delete(email);
-
     return successResponse(res, 'Contraseña actualizada correctamente', null, 200);
   }
 

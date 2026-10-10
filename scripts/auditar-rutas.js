@@ -27,7 +27,7 @@ const PUBLICAS = {
   'POST /api/vv1/auth/registro': 'Registro de cuentas nuevas',
   'POST /api/vv1/auth/login': 'Inicio de sesión',
   'POST /api/vv1/auth/logout': 'Cerrar sesión: solo borra la cookie de quien llama',
-  'POST /api/vv1/auth/recuperar-contrasena': 'Recuperar contraseña (usa un código enviado por correo)',
+  'POST /api/vv1/auth/recuperar-contrasena': 'Recuperar contraseña: enlace con token de un solo uso enviado por correo (con límite por IP)',
   'GET /api/vv1/auth/verificar/:token': 'Verificación de cuenta con el enlace del correo',
   'POST /api/vv1/auth/reenviar-verificacion': 'Reenviar el correo de verificación',
   'POST /api/vv1/pagos/webhook': 'Notificaciones de Mercado Pago: se valida la firma HMAC dentro del controlador',

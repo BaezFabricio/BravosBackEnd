@@ -222,6 +222,112 @@ exports.obtenerMisReservas = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Rutinas (con sus ejercicios) de varias clases, como { idClase: rutina }.
+ * La descripción puede venir como JSON {desc, rutina} (texto enriquecido) o como texto plano (viejo).
+ */
+async function rutinasDeClases(idsClaseRepetidos) {
+  const idsClase = [...new Set(idsClaseRepetidos)];
+  const porClase = {};
+  if (idsClase.length === 0) return porClase;
+  // db.query usa sentencias preparadas (execute), que no expanden listas: un "?" por elemento
+  const marcas = (lista) => lista.map(() => '?').join(', ');
+  const [rutinas] = await db.query(
+    `SELECT idRutina, idClase, descripcion, nivel, categoria FROM rutina WHERE idClase IN (${marcas(idsClase)})`,
+    idsClase
+  );
+  const idsRutina = rutinas.map((r) => r.idRutina);
+  const [ejercicios] = idsRutina.length
+    ? await db.query(
+        `SELECT idRutina, nombre, videoUrl FROM ejercicio WHERE idRutina IN (${marcas(idsRutina)}) ORDER BY orden ASC`,
+        idsRutina
+      )
+    : [[]];
+  for (const r of rutinas) {
+    let descripcion = r.descripcion || '';
+    let contenido = '';
+    try {
+      const p = JSON.parse(r.descripcion || '');
+      if (p && typeof p.rutina !== 'undefined') {
+        descripcion = p.desc || '';
+        contenido = p.rutina || '';
+      }
+    } catch { /* texto plano */ }
+    porClase[r.idClase] = {
+      descripcion,
+      contenido,
+      nivel: r.nivel,
+      categoria: r.categoria,
+      ejercicios: ejercicios
+        .filter((e) => e.idRutina === r.idRutina)
+        .map(({ nombre, videoUrl }) => ({ nombre, videoUrl })),
+    };
+  }
+  return porClase;
+}
+
+/**
+ * GET /api/vv1/reservas/mis-rutinas
+ * Próximas clases reservadas por el alumno de la sesión, cada una con la rutina que cargó
+ * el profesor (o null si todavía no hay). Solo devuelve rutinas de clases que reservó.
+ */
+exports.obtenerMisRutinas = asyncHandler(async (req, res) => {
+  const idUsuario = req.user?.idUsuario;
+  if (!idUsuario) return errorResponse(res, 'No se pudo identificar al usuario.', 'NOT_AUTHENTICATED', 401);
+
+  const [reservas] = await db.query(
+    `SELECT r.idReserva,
+            DATE_FORMAT(r.fechaReserva, '%Y-%m-%d') AS fecha,
+            h.horaInicio, h.horaFin,
+            c.idClase, c.nombreClase,
+            per.nombrecompleto AS nombreProfesor
+     FROM reserva r
+     INNER JOIN alumno a ON r.idAlumno = a.idAlumno
+     INNER JOIN usuario u ON a.idPersona = u.idPersona
+     INNER JOIN horarioclase h ON r.idHorario = h.idHorario
+     INNER JOIN diaclase c ON h.idClase = c.idClase
+     LEFT JOIN profesor p ON c.idProfesor = p.idProfesor
+     LEFT JOIN persona per ON p.idPersona = per.idPersona
+     WHERE u.idUsuario = ?
+       AND r.estado = 'proxima'
+       AND r.fechaReserva >= CURDATE()
+     ORDER BY r.fechaReserva ASC, h.horaInicio ASC
+     LIMIT 30`,
+    [idUsuario]
+  );
+
+  const rutinasPorClase = await rutinasDeClases(reservas.map((r) => r.idClase));
+  const resultado = reservas.map(({ idClase, ...r }) => ({ ...r, rutina: rutinasPorClase[idClase] || null }));
+  return successResponse(res, 'Rutinas de tus clases reservadas', resultado);
+});
+
+/**
+ * GET /api/vv1/reservas/:id/rutina
+ * Rutina de la clase de UNA reserva. Solo si la reserva es de quien inició sesión (si es de otro, 403).
+ */
+exports.obtenerRutinaDeMiReserva = asyncHandler(async (req, res) => {
+  const idUsuario = req.user?.idUsuario;
+  const idReserva = Number(req.params.id);
+  if (!Number.isInteger(idReserva) || idReserva <= 0) return errorResponse(res, 'Reserva inválida.', 'INVALID_ID', 400);
+
+  const [rows] = await db.query(
+    `SELECT h.idClase, u.idUsuario AS idDueno
+     FROM reserva r
+     INNER JOIN alumno a ON r.idAlumno = a.idAlumno
+     INNER JOIN usuario u ON a.idPersona = u.idPersona
+     INNER JOIN horarioclase h ON r.idHorario = h.idHorario
+     WHERE r.idReserva = ?`,
+    [idReserva]
+  );
+  if (rows.length === 0) return errorResponse(res, 'Reserva no encontrada.', 'NOT_FOUND', 404);
+  if (Number(rows[0].idDueno) !== Number(idUsuario)) {
+    return errorResponse(res, 'No tenés permiso para ver esta reserva.', 'FORBIDDEN', 403);
+  }
+
+  const porClase = await rutinasDeClases([rows[0].idClase]);
+  return successResponse(res, 'Rutina de la clase', porClase[rows[0].idClase] || null);
+});
+
+/**
  * GET /api/vv1/reservas/admin/usuario/:idUsuario
  * Admin: historial de reservas de un usuario específico
  */

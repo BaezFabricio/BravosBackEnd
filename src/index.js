@@ -8,6 +8,7 @@ const { releaseOccupiedPort } = require('./utils/releaseOccupiedPort');
 const crearTablaAvatarUsuario = require('./data/Avatar/CrearTablaAvatarUsuario');
 const { crearTablaNotificacion } = require('./functions/notificacion.service');
 const { crearTablasLegales } = require('./functions/consentimiento');
+const { crearTablaRecuperacion } = require('./functions/recuperacion');
 const { iniciarCronPublicacion } = require('./functions/publicacionCron');
 const { iniciarCronMembresias } = require('./functions/membresiasCron');
 
@@ -38,6 +39,7 @@ async function startServer() {
       await db.query(crearTablaAvatarUsuario);
       await crearTablaNotificacion();
       await crearTablasLegales();
+      await crearTablaRecuperacion();
       // Migraciones independientes — fallan silenciosamente si la columna ya existe
       // Tabla de documentos de alumnos
       try {
@@ -63,6 +65,9 @@ async function startServer() {
         `ALTER TABLE usuario ADD COLUMN activadoManualEn DATETIME NULL`,
         `ALTER TABLE pago ADD COLUMN referenciaExterna VARCHAR(100) NULL`,
         `ALTER TABLE pago MODIFY COLUMN idUsuarioOperador INT NULL`,
+        // El registro crea las cuentas como 'pendiente' (sin perfil hasta que el admin asigne uno);
+        // la base no tenía ese valor y, en modo estricto, el registro fallaba.
+        `ALTER TABLE usuario MODIFY COLUMN estado ENUM('activo','inactivo','suspendido','pendiente') DEFAULT 'activo'`,
       ];
       for (const sql of migraciones) {
         try { await db.query(sql); } catch { /* columna ya existe */ }
