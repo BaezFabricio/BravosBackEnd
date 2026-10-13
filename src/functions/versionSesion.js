@@ -10,16 +10,27 @@ const db = require('../config/db');
 const DURACION_CACHE_MS = 15 * 1000;
 const cache = new Map();
 
+/**
+ * Estado de la sesión del usuario: versión vigente y si tiene que cambiar la contraseña
+ * (cuenta creada por un admin con contraseña temporal). null si el usuario ya no existe.
+ */
+async function estadoSesion(idUsuario) {
+  const id = Number(idUsuario);
+  const guardado = cache.get(id);
+  if (guardado && guardado.hasta > Date.now()) return guardado.estado;
+
+  const [rows] = await db.query('SELECT sesion_version, debe_cambiar_contrasena FROM usuario WHERE idUsuario = ?', [id]);
+  const estado = rows.length
+    ? { version: Number(rows[0].sesion_version) || 0, debeCambiar: Number(rows[0].debe_cambiar_contrasena) === 1 }
+    : null;
+  cache.set(id, { estado, hasta: Date.now() + DURACION_CACHE_MS });
+  return estado;
+}
+
 /** Versión vigente del usuario, o null si el usuario ya no existe. */
 async function versionActual(idUsuario) {
-  const id = Number(idUsuario);
-  const guardada = cache.get(id);
-  if (guardada && guardada.hasta > Date.now()) return guardada.version;
-
-  const [rows] = await db.query('SELECT sesion_version FROM usuario WHERE idUsuario = ?', [id]);
-  const version = rows.length ? Number(rows[0].sesion_version) || 0 : null;
-  cache.set(id, { version, hasta: Date.now() + DURACION_CACHE_MS });
-  return version;
+  const estado = await estadoSesion(idUsuario);
+  return estado ? estado.version : null;
 }
 
 /** Corta todas las sesiones abiertas del usuario. Devuelve la versión nueva. */
@@ -36,4 +47,4 @@ function olvidarVersion(idUsuario) {
   cache.delete(Number(idUsuario));
 }
 
-module.exports = { versionActual, invalidarSesiones, olvidarVersion };
+module.exports = { estadoSesion, versionActual, invalidarSesiones, olvidarVersion };

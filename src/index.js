@@ -70,6 +70,10 @@ async function startServer() {
         `ALTER TABLE usuario MODIFY COLUMN estado ENUM('activo','inactivo','suspendido','pendiente') DEFAULT 'activo'`,
         // Versión de sesión: al cambiar la contraseña sube y se cierran las sesiones abiertas
         `ALTER TABLE usuario ADD COLUMN sesion_version INT NOT NULL DEFAULT 0`,
+        // Contraseña temporal (alta hecha por un admin): hay que cambiarla al primer ingreso
+        `ALTER TABLE usuario ADD COLUMN debe_cambiar_contrasena TINYINT(1) NOT NULL DEFAULT 0`,
+        // Descripción del plan: primera línea = descripción corta; las demás = condiciones que ve el alumno
+        `ALTER TABLE plan MODIFY COLUMN descripcion VARCHAR(1000) NULL`,
       ];
       for (const sql of migraciones) {
         try { await db.query(sql); } catch { /* columna ya existe */ }

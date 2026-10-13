@@ -15,6 +15,31 @@ const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
 const { syncEjercicios } = require('./rutinas.controller');
 
+const DIAS_VALIDOS = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO'];
+const CUPO_MAXIMO = 20;
+const diaDeFecha = (fecha) => ['DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO'][new Date(fecha + 'T12:00:00').getDay()];
+
+/**
+ * Revisa los datos de una clase (al crear y al editar). Devuelve el mensaje del problema o null.
+ * El cupo es el límite real de reservas: se guarda igual en cupoMaximo y cupoDisponible.
+ */
+function problemaDeClase({ nombreClase, cupo, estado, idProfesor, diasSemana, fechaEspecifica, horaInicio, horaFin }) {
+  const nombre = String(nombreClase || '').trim();
+  if (nombre.length < 2 || nombre.length > 100) return 'El nombre de la clase tiene que tener entre 2 y 100 caracteres.';
+  if (!Number.isInteger(cupo) || cupo < 1 || cupo > CUPO_MAXIMO) return `El cupo tiene que ser un número entre 1 y ${CUPO_MAXIMO}.`;
+  if (!['Activo', 'Inactivo'].includes(estado)) return 'El estado tiene que ser Activo o Inactivo.';
+  if (!Number.isInteger(Number(idProfesor)) || Number(idProfesor) <= 0) return 'Elegí el coach de la clase.';
+  const hora = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
+  if (!hora.test(String(horaInicio || '')) || !hora.test(String(horaFin || ''))) return 'Elegí la hora de inicio y de fin.';
+  if (String(horaInicio).slice(0, 5) >= String(horaFin).slice(0, 5)) return 'La hora de fin tiene que ser posterior a la de inicio.';
+  if (fechaEspecifica) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fechaEspecifica)) || Number.isNaN(new Date(fechaEspecifica + 'T12:00:00').getTime())) return 'La fecha de la clase no es válida.';
+  } else if (!Array.isArray(diasSemana) || diasSemana.length === 0 || diasSemana.some((d) => !DIAS_VALIDOS.includes(d))) {
+    return 'Elegí al menos un día de la semana.';
+  }
+  return null;
+}
+
 /**
  * Crea o actualiza la rutina vinculada a una clase (categoría, nivel, descripción
  * y ejercicios con video). Si `rutina` viene vacío/ausente no hace nada.
@@ -115,7 +140,7 @@ exports.getById = asyncHandler(async (req, res) => {
   const [clase] = await db.query(obtenerClasePorId, [id]);
 
   if (clase.length === 0) {
-    return errorResponse(res, 'Clase no encontrada', 404);
+    return errorResponse(res, 'Clase no encontrada', 'NOT_FOUND', 404);
   }
 
   const [rutinaRows] = await db.query('SELECT * FROM rutina WHERE idClase = ?', [id]);
@@ -154,25 +179,21 @@ exports.insert = asyncHandler(async (req, res) => {
     fechaPublicacion,
   } = req.body;
 
-  if (!nombreClase || !tipoClase || !cupoMaximo || !cupoDisponible || !estado || !idProfesor) {
-    return errorResponse(res, 'Todos los campos de la clase son obligatorios', 400);
+  // El cupo es uno solo: el límite real de reservas
+  const cupo = Number(cupoMaximo ?? cupoDisponible);
+  const problema = problemaDeClase({ nombreClase, cupo, estado, idProfesor, diasSemana, fechaEspecifica, horaInicio, horaFin });
+  if (problema) return errorResponse(res, problema, 'VALIDATION_ERROR', 400);
+  if (!tipoClase || !turno) {
+    return errorResponse(res, 'Faltan el tipo de clase o el turno.', 'VALIDATION_ERROR', 400);
   }
 
   const esUnica = !!fechaEspecifica;
 
-  if (!esUnica && (!diasSemana || !Array.isArray(diasSemana) || diasSemana.length === 0)) {
-    return errorResponse(res, 'Debe seleccionar al menos un día o una fecha específica', 400);
-  }
-
-  if (!horaInicio || !horaFin || !turno) {
-    return errorResponse(res, 'Horario, hora de inicio, hora de fin y turno son obligatorios', 400);
-  }
-
   const [result] = await db.query(insertarClase, [
-    nombreClase,
+    String(nombreClase).trim(),
     tipoClase,
-    cupoMaximo,
-    cupoDisponible,
+    cupo,
+    cupo,
     estado,
     null,
     idProfesor,
@@ -237,6 +258,7 @@ exports.update = asyncHandler(async (req, res) => {
     idProfesor,
     idPlan,
     diasSemana,
+    fechaEspecifica,
     horaInicio,
     horaFin,
     turno,
@@ -244,45 +266,70 @@ exports.update = asyncHandler(async (req, res) => {
     fechaPublicacion
   } = req.body;
 
-  if (!nombreClase || !tipoClase || !cupoMaximo || !cupoDisponible || !estado || !idProfesor) {
-    return errorResponse(res, 'Todos los campos de la clase son obligatorios', 400);
-  }
-
-  if (!diasSemana || !Array.isArray(diasSemana) || diasSemana.length === 0) {
-    return errorResponse(res, 'Debe seleccionar al menos un día para la clase', 400);
-  }
-
-  if (!horaInicio || !horaFin || !turno) {
-    return errorResponse(res, 'Horario, hora de inicio, hora de fin y turno son obligatorios', 400);
+  // El cupo es uno solo: el límite real de reservas. Antes la pantalla de editar mandaba
+  // cupoMaximo = 20 fijo y el número elegido iba a cupoDisponible, así que la clase aceptaba 20.
+  const cupo = Number(cupoMaximo ?? cupoDisponible);
+  const problema = problemaDeClase({ nombreClase, cupo, estado, idProfesor, diasSemana, fechaEspecifica, horaInicio, horaFin });
+  if (problema) return errorResponse(res, problema, 'VALIDATION_ERROR', 400);
+  if (!tipoClase || !turno) {
+    return errorResponse(res, 'Faltan el tipo de clase o el turno.', 'VALIDATION_ERROR', 400);
   }
 
   const [claseExistente] = await db.query(obtenerClasePorId, [id]);
 
   if (claseExistente.length === 0) {
-    return errorResponse(res, 'Clase no encontrada', 404);
+    return errorResponse(res, 'Clase no encontrada', 'NOT_FOUND', 404);
   }
 
+  // Una clase no cambia de tipo al editarla: la sesión única sigue siendo única y la recurrente, recurrente
+  const [horariosActuales] = await db.query(
+    "SELECT idHorario, dia, DATE_FORMAT(fechaEspecifica, '%Y-%m-%d') AS fechaEspecifica FROM horarioclase WHERE idClase = ?", [id]
+  );
+  const horarioUnico = horariosActuales.find((h) => h.fechaEspecifica);
+  if (horarioUnico && !fechaEspecifica) {
+    return errorResponse(res, 'Esta clase es una sesión única: elegí su fecha.', 'VALIDATION_ERROR', 400);
+  }
+  if (!horarioUnico && fechaEspecifica) {
+    return errorResponse(res, 'Una clase recurrente no se puede pasar a sesión única. Creá una clase nueva.', 'VALIDATION_ERROR', 400);
+  }
+  if (horarioUnico && fechaEspecifica !== horarioUnico.fechaEspecifica) {
+    const [[conReservas]] = await db.query(
+      "SELECT COUNT(*) AS total FROM reserva WHERE idHorario = ? AND estado = 'proxima'", [horarioUnico.idHorario]
+    );
+    if (Number(conReservas.total) > 0) {
+      return errorResponse(res, 'La clase ya tiene alumnos anotados: no se le puede cambiar la fecha.', 'HAS_RESERVATIONS', 409);
+    }
+  }
+
+  const fechaAviso = fechaPublicacion || null;
   await db.query(actualizarClase, [
-    nombreClase,
+    fechaAviso,
+    String(nombreClase).trim(),
     tipoClase,
-    cupoMaximo,
-    cupoDisponible,
+    cupo,
+    cupo,
     estado,
     null,
     idProfesor,
     idPlan || null,
-    fechaPublicacion || null,
+    fechaAviso,
     id
   ]);
+
+  if (horarioUnico) {
+    await db.query(
+      'UPDATE horarioclase SET dia = ?, fechaEspecifica = ?, horaInicio = ?, horaFin = ?, turno = ? WHERE idHorario = ?',
+      [diaDeFecha(fechaEspecifica), fechaEspecifica, horaInicio, horaFin, turno, horarioUnico.idHorario]
+    );
+    await guardarRutinaDeClase(id, idProfesor, nombreClase, rutina);
+    return successResponse(res, 'Clase actualizada correctamente', { idClase: Number(id) });
+  }
 
   // Actualizar horarios sin tocar las reservas existentes:
   // - Si el día ya existía → UPDATE (hora/turno)
   // - Si el día es nuevo → INSERT
   // - Si el día fue eliminado y no tiene reservas → DELETE
   // - Si el día fue eliminado pero tiene reservas → no se toca
-  const [horariosActuales] = await db.query(
-    'SELECT idHorario, dia FROM horarioclase WHERE idClase = ?', [id]
-  );
   const mapaActual = {};
   horariosActuales.forEach(h => { mapaActual[h.dia] = h.idHorario; });
 
@@ -295,8 +342,9 @@ exports.update = asyncHandler(async (req, res) => {
       );
       delete mapaActual[dia]; // marcar como procesado
     } else {
-      // Día nuevo → insertar
-      await db.query(insertarHorarioClase, [dia, horaInicio, horaFin, turno, id]);
+      // Día nuevo → insertar (sin fecha: es recurrente). Antes faltaba este último dato y
+      // agregar un día al editar fallaba siempre.
+      await db.query(insertarHorarioClase, [dia, horaInicio, horaFin, turno, id, null]);
     }
   }
 
@@ -340,14 +388,14 @@ exports.updateEstado = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { estado } = req.body;
 
-  if (!estado) {
-    return errorResponse(res, 'El estado es obligatorio', 400);
+  if (!['Activo', 'Inactivo'].includes(estado)) {
+    return errorResponse(res, 'El estado tiene que ser Activo o Inactivo.', 'VALIDATION_ERROR', 400);
   }
 
   const [claseExistente] = await db.query(obtenerClasePorId, [id]);
 
   if (claseExistente.length === 0) {
-    return errorResponse(res, 'Clase no encontrada', 404);
+    return errorResponse(res, 'Clase no encontrada', 'NOT_FOUND', 404);
   }
 
   const claseInfo = claseExistente[0];
@@ -385,7 +433,7 @@ exports.delete = asyncHandler(async (req, res) => {
   const [claseExistente] = await db.query(obtenerClasePorId, [id]);
 
   if (claseExistente.length === 0) {
-    return errorResponse(res, 'Clase no encontrada', 404);
+    return errorResponse(res, 'Clase no encontrada', 'NOT_FOUND', 404);
   }
 
   const claseAEliminar = claseExistente[0];

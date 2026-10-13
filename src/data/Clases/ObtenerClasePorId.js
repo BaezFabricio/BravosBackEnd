@@ -20,7 +20,9 @@ const obtenerClasePorId = `
     GROUP_CONCAT(h.dia ORDER BY 
       FIELD(h.dia, 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO')
       SEPARATOR ','
-    ) AS diasSemana
+    ) AS diasSemana,
+    -- Las sesiones únicas tienen un solo horario con fecha; las recurrentes, NULL
+    DATE_FORMAT(MAX(h.fechaEspecifica), '%Y-%m-%d') AS fechaEspecifica
 
   -- 🟢 CORREGIDO: Apunta a tus tablas reales 'diaclase' y los LEFT JOINs seguros
   FROM diaclase c

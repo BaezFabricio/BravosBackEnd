@@ -456,8 +456,8 @@ exports.procesarTarjeta = asyncHandler(async (req, res) => {
   return errorResponse(res, payment.status_detail || 'Pago rechazado.', 'PAYMENT_REJECTED', 400)
 })
 
-// Igual que DIAS_AVISO_VENCIMIENTO (membresiasCron.js): el panel y el correo usan el mismo criterio
-const DIAS_POR_VENCER = 3
+// "Por vencer": desde el día 1 del mes en que vence la membresía (todas vencen el 10), así el
+// alumno puede renovar del 1 al 10. El mismo criterio usa la lista de usuarios del admin.
 
 /**
  * GET /pagos/mi-historial
@@ -521,6 +521,7 @@ exports.miPlan = asyncHandler(async (req, res) => {
             c.creditosUtilizados AS utilizados,
             DATE_FORMAT(c.fechaVencimiento, '%Y-%m-%d') AS fechaVencimiento,
             DATEDIFF(c.fechaVencimiento, CURDATE()) AS diasRestantes,
+            (CURDATE() >= DATE_FORMAT(c.fechaVencimiento, '%Y-%m-01')) AS enMesDeVencimiento,
             pl.idPlan, pl.nombre AS nombrePlan, pl.precio
      FROM credito c
      INNER JOIN alumno a ON c.idAlumno = a.idAlumno
@@ -543,12 +544,12 @@ exports.miPlan = asyncHandler(async (req, res) => {
     [idUsuario]
   )
 
-  const planes = vigentes.map((v) => ({
+  const planes = vigentes.map(({ enMesDeVencimiento, ...v }) => ({
     ...v,
     precio: Number(v.precio),
     diasRestantes: Number(v.diasRestantes),
+    porVencer: Number(enMesDeVencimiento) === 1,
   }))
-  const diasMin = planes.length ? Math.min(...planes.map((p) => p.diasRestantes)) : null
 
   return successResponse(res, 'Plan obtenido', {
     planes,
@@ -556,7 +557,7 @@ exports.miPlan = asyncHandler(async (req, res) => {
     totalCreditos: planes.reduce((acc, p) => acc + p.totalCreditos, 0),
     proximoVencimiento: planes[0]?.fechaVencimiento ?? null,
     vigente: planes.length > 0,
-    porVencer: planes.length > 0 && diasMin <= DIAS_POR_VENCER,
+    porVencer: planes.some((p) => p.porVencer),
     ultimoPlan: ultimo[0] ? { ...ultimo[0], precio: Number(ultimo[0].precio) } : null,
   })
 })

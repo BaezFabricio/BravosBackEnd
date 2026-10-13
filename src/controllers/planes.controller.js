@@ -8,8 +8,17 @@ const TIPOS_VALIDOS = ['ClaseCross', 'PlanificacionAtleta'];
  * GET /planes
  */
 exports.getAll = asyncHandler(async (req, res) => {
-  const [planes] = await db.query('SELECT * FROM plan ORDER BY idPlan');
-  return successResponse(res, 'Planes obtenidos correctamente', planes);
+  // Además de los datos del plan, cuántos alumnos lo tienen activo hoy (crédito activo y sin vencer).
+  // Solo cantidades, nunca quiénes: esta ruta exige el permiso de Membresías.
+  const [planes] = await db.query(`
+    SELECT pl.idPlan, pl.nombre, pl.descripcion, pl.precio, pl.cantidadCreditos, pl.tipo,
+           (SELECT COUNT(DISTINCT c.idAlumno)
+              FROM credito c
+              INNER JOIN pago p ON c.idPago = p.idPago
+             WHERE p.idPlan = pl.idPlan AND c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE()) AS alumnosActivos
+      FROM plan pl
+     ORDER BY pl.idPlan`);
+  return successResponse(res, 'Planes obtenidos correctamente', planes.map((p) => ({ ...p, alumnosActivos: Number(p.alumnosActivos) || 0 })));
 });
 
 /**
@@ -29,12 +38,24 @@ exports.getById = asyncHandler(async (req, res) => {
 /**
  * POST /planes
  */
+// Validación del lado del servidor: el precio es dinero y no se acepta lo que mande el navegador sin revisar
+function problemaDelPlan({ nombre, descripcion, precio, cantidadCreditos }) {
+  if (!nombre || !String(nombre).trim()) return 'El nombre es obligatorio.';
+  if (String(nombre).length > 100) return 'El nombre puede tener hasta 100 caracteres.';
+  const p = Number(precio);
+  if (!Number.isFinite(p) || p <= 0) return 'El precio tiene que ser un número mayor a 0.';
+  if (p > 10000000) return 'El precio es demasiado alto.';
+  const c = Number(cantidadCreditos);
+  if (!Number.isInteger(c) || c < 1 || c > 1000) return 'Los créditos tienen que ser un número entero entre 1 y 1000.';
+  if (descripcion && String(descripcion).length > 1000) return 'La descripción y las condiciones pueden tener hasta 1000 caracteres.';
+  return null;
+}
+
 exports.insert = asyncHandler(async (req, res) => {
   const { nombre, descripcion, precio, cantidadCreditos, tipo } = req.body;
 
-  if (!nombre || precio === undefined || cantidadCreditos === undefined) {
-    return errorResponse(res, 'Nombre, precio y cantidad de créditos son obligatorios.', 'MISSING_FIELDS', 400);
-  }
+  const problema = problemaDelPlan({ nombre, descripcion, precio, cantidadCreditos });
+  if (problema) return errorResponse(res, problema, 'INVALID_PLAN', 400);
 
   if (tipo && !TIPOS_VALIDOS.includes(tipo)) {
     return errorResponse(res, `El tipo debe ser uno de: ${TIPOS_VALIDOS.join(', ')}`, 'INVALID_TIPO', 400);
@@ -57,9 +78,8 @@ exports.update = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { nombre, descripcion, precio, cantidadCreditos, tipo } = req.body;
 
-  if (!nombre || precio === undefined || cantidadCreditos === undefined) {
-    return errorResponse(res, 'Nombre, precio y cantidad de créditos son obligatorios.', 'MISSING_FIELDS', 400);
-  }
+  const problema = problemaDelPlan({ nombre, descripcion, precio, cantidadCreditos });
+  if (problema) return errorResponse(res, problema, 'INVALID_PLAN', 400);
 
   if (tipo && !TIPOS_VALIDOS.includes(tipo)) {
     return errorResponse(res, `El tipo debe ser uno de: ${TIPOS_VALIDOS.join(', ')}`, 'INVALID_TIPO', 400);

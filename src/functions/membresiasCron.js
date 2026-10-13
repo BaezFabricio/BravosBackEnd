@@ -2,8 +2,8 @@ const db = require('../config/db');
 const { crearNotificacion } = require('./notificacion.service');
 const { sendMembresiaPorVencerEmail, sendMembresiaVenceEmail } = require('./email.service');
 
-// Días de anticipación del aviso "tu membresía vence". Mismo valor que DIAS_POR_VENCER
-// (pagos.controller.js), que es lo que el panel muestra como "Por vencer".
+// Días de anticipación del correo "tu membresía vence" (el panel ya muestra "Por vencer"
+// y deja renovar desde el día 1 del mes en que vence; ver pagos.controller.js).
 const DIAS_AVISO_VENCIMIENTO = 3;
 
 // Registro de avisos ya mandados. El cron corre al iniciar el servidor y cada 24 h:

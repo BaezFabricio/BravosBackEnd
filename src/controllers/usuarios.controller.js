@@ -11,6 +11,41 @@ const cloudinary = require('../config/cloudinary');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
 const { hashPassword } = require('../functions/encryption');
+const { problemaContrasena } = require('../functions/recuperacion');
+const { esSuperAdmin, puedeAsignarPerfil } = require('../functions/escalada');
+const { invalidarSesiones, olvidarVersion } = require('../functions/versionSesion');
+
+// Formato de los datos personales al editar (solo se revisan los que vienen en el pedido)
+function problemaDatosUsuario({ nombre, correo, dni, telefono }) {
+  if (nombre !== undefined && (String(nombre).trim().length < 2 || String(nombre).trim().length > 100)) {
+    return 'El nombre tiene que tener entre 2 y 100 caracteres.';
+  }
+  if (correo !== undefined && (String(correo).length > 100 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(correo).trim()))) {
+    return 'El correo no es válido.';
+  }
+  if (dni !== undefined && !/^\d{6,10}$/.test(String(dni).trim())) {
+    return 'El DNI tiene que tener entre 6 y 10 números, sin puntos.';
+  }
+  if (telefono !== undefined && telefono !== '' && !/^[\d\s+()-]{6,30}$/.test(String(telefono).trim())) {
+    return 'El teléfono solo puede tener números, espacios, + y guiones.';
+  }
+  return null;
+}
+
+/*
+ * Para activar, desactivar o eliminar a otro usuario: no sobre uno mismo, y solo si su perfil no
+ * tiene más permisos que el de quien lo hace (si no, alguien con menos poder podría sacar del
+ * sistema a un administrador). Devuelve el mensaje del rechazo, o null si se puede.
+ */
+async function rechazoSobreUsuario(req, usuario, accion) {
+  if (Number(usuario.idUsuario) === Number(req.user?.idUsuario)) {
+    return `No podés ${accion} tu propia cuenta.`;
+  }
+  if (!(await puedeAsignarPerfil(req.user?.idPerfil, usuario.idPerfil))) {
+    return `No podés ${accion} a un usuario con más permisos que los tuyos.`;
+  }
+  return null;
+}
 
 /**
  * Sanitiza un string de fecha a 'YYYY-MM-DD'. Retorna null si la fecha
@@ -72,9 +107,9 @@ exports.getAll = asyncHandler(async (req, res) => {
       ua.url AS avatarUrl,
       -- 🟢 CRÉDITOS REALES: Suma de turnos disponibles activos
       IFNULL(SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() THEN c.creditosCisponibles ELSE 0 END), 0) AS creditos,
-      -- 🟢 MEMBRESÍA DINÁMICA: activa, por_vencer (≤3 días) o vencida
+      -- 🟢 MEMBRESÍA DINÁMICA: activa, por_vencer (desde el 1 del mes en que vence) o vencida
       CASE
-        WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND c.fechaVencimiento <= DATE_ADD(CURDATE(), INTERVAL 3 DAY) AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'por_vencer'
+        WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND CURDATE() >= DATE_FORMAT(c.fechaVencimiento, '%Y-%m-01') AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'por_vencer'
         WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'activa'
         ELSE 'vencida'
       END AS membresia
@@ -111,6 +146,7 @@ exports.getById = asyncHandler(async (req, res) => {
       p.telefono AS telefono,           -- 🟢 Mapea directo a user.telefono
       p.fecha_registro AS fechaRegistro, -- 🟢 Usa tu columna real con guión bajo
       perf.nombrePerfil AS perfil,       -- 🟢 Mapea directo a user.perfil
+      u.idPerfil,                        -- para marcar el perfil actual al editar
       ua.url AS avatarUrl
     FROM usuario u
     INNER JOIN persona p ON u.idPersona = p.idpersona -- 💡 idpersona va todo en minúsculas en tu DB
@@ -132,7 +168,7 @@ exports.getById = asyncHandler(async (req, res) => {
     SELECT 
       IFNULL(SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() THEN c.creditosCisponibles ELSE 0 END), 0) AS creditosCalculados,
       CASE
-        WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND c.fechaVencimiento <= DATE_ADD(CURDATE(), INTERVAL 3 DAY) AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'por_vencer'
+        WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND CURDATE() >= DATE_FORMAT(c.fechaVencimiento, '%Y-%m-01') AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'por_vencer'
         WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'activa'
         ELSE 'vencida'
       END AS membresiaCalculada
@@ -145,8 +181,10 @@ exports.getById = asyncHandler(async (req, res) => {
   const metricas = metricsRows[0] || { creditosCalculados: 0, membresiaCalculada: 'vencida' };
 
   
+  // idPersona solo se usa acá adentro para las métricas; no hace falta devolverlo
+  const { idPersona: _idPersona, ...datosPublicos } = usuarioBase;
   const usuarioFinal = {
-    ...usuarioBase,
+    ...datosPublicos,
     creditos: metricas.creditosCalculados,
     membresia: metricas.membresiaCalculada  
   };
@@ -159,6 +197,15 @@ exports.getById = asyncHandler(async (req, res) => {
  */
 exports.create = asyncHandler(async (req, res) => {
   const { nombrecompleto, dni, correo, telefono, username, password, idPerfil } = req.body;
+
+  // Misma regla de contraseña que el registro y la recuperación (8+, mayúscula, minúscula y número)
+  const problema = problemaContrasena(password);
+  if (problema) return errorResponse(res, problema, 'WEAK_PASSWORD', 400);
+
+  // No se puede crear un usuario con un perfil que tenga más permisos que el de quien lo crea
+  if (!idPerfil || !(await puedeAsignarPerfil(req.user?.idPerfil, Number(idPerfil)))) {
+    return errorResponse(res, 'No podés asignar un perfil con más permisos que el tuyo.', 'FORBIDDEN', 403);
+  }
 
   // Usamos una transacción para garantizar consistencia total multi-tabla
   const connection = await db.getConnection();
@@ -185,6 +232,9 @@ exports.create = asyncHandler(async (req, res) => {
       idPerfil,
       'activo',
     ]);
+
+    // La contraseña la eligió el admin: el usuario tiene que cambiarla al entrar por primera vez
+    await connection.query('UPDATE usuario SET debe_cambiar_contrasena = 1 WHERE idUsuario = ?', [usuarioResult.insertId]);
 
     // 4. 🟢 AUTOMATISMO: Sincroniza la tabla profesor con la tabla intermedia perfilpermiso
     await sincronizarFichaProfesor(connection, personaId, idPerfil);
@@ -228,10 +278,25 @@ exports.update = asyncHandler(async (req, res) => {
   try {
     const [usuarios] = await connection.query('SELECT * FROM usuario WHERE idUsuario = ?', [id]);
     if (usuarios.length === 0) {
-      connection.release();
+      await connection.rollback(); // la conexión la libera el finally (antes se liberaba dos veces)
       return errorResponse(res, 'Usuario no encontrado', 'USER_NOT_FOUND', 404);
     }
     const usuarioActual = usuarios[0];
+    const esPropio = Number(id) === Number(req.user?.idUsuario);
+
+    // A otro usuario solo lo edita quien tiene un perfil igual o más fuerte. Si no, alguien con
+    // menos poder podría cambiarle el correo a un administrador y quedarse con su cuenta
+    // pidiendo "recuperar contraseña".
+    if (!esPropio && !(await puedeAsignarPerfil(req.user?.idPerfil, usuarioActual.idPerfil))) {
+      await connection.rollback();
+      return errorResponse(res, 'No podés editar a un usuario con más permisos que los tuyos.', 'FORBIDDEN', 403);
+    }
+
+    const problema = problemaDatosUsuario({ nombre: nombrecompleto || nombre, correo: correo || email, dni, telefono });
+    if (problema) {
+      await connection.rollback();
+      return errorResponse(res, problema, 'VALIDATION_ERROR', 400);
+    }
 
     const [personas] = await connection.query('SELECT * FROM persona WHERE idPersona = ?', [usuarioActual.idPersona]);
     const personaActual = personas[0] || {};
@@ -245,11 +310,47 @@ exports.update = asyncHandler(async (req, res) => {
     // cualquiera podía enviar su propio idPerfil y convertirse en administrador.
     const puedeAdministrar = await tienePermiso(req.user?.idPerfil, 'usuarios', 'modificacion');
 
-    const finalEstado = puedeAdministrar ? (estado || usuarioActual.estado) : usuarioActual.estado;
+    let finalEstado = usuarioActual.estado;
+    if (puedeAdministrar && estado && estado !== usuarioActual.estado) {
+      if (!['activo', 'inactivo'].includes(estado)) {
+        await connection.rollback();
+        return errorResponse(res, 'El estado tiene que ser "activo" o "inactivo".', 'VALIDATION_ERROR', 400);
+      }
+      if (esPropio) {
+        await connection.rollback();
+        return errorResponse(res, 'No podés cambiar el estado de tu propia cuenta.', 'FORBIDDEN', 403);
+      }
+      finalEstado = estado;
+    }
 
-    const finalIdPerfil = puedeAdministrar && idPerfil !== undefined && idPerfil !== null && idPerfil !== ""
-      ? parseInt(idPerfil)
-      : usuarioActual.idPerfil;
+    let finalIdPerfil = usuarioActual.idPerfil;
+    const perfilPedido = idPerfil !== undefined && idPerfil !== null && idPerfil !== "" ? parseInt(idPerfil) : null;
+    if (puedeAdministrar && perfilPedido !== null && perfilPedido !== Number(usuarioActual.idPerfil)) {
+      // Nadie asigna un perfil con más poder que el suyo. Vale también para el propio: uno puede
+      // pasarse a un perfil igual o menor, nunca subirse.
+      if (!(await puedeAsignarPerfil(req.user?.idPerfil, perfilPedido))) {
+        await connection.rollback();
+        return errorResponse(res, 'No podés asignar un perfil con más permisos que el tuyo.', 'FORBIDDEN', 403);
+      }
+      // Si uno mismo se saca el permiso de administrar usuarios, tiene que quedar otra persona
+      // activa que lo tenga; si no, nadie podría devolvérselo.
+      if (esPropio && !esSuperAdmin(req.user?.idPerfil) && !(await tienePermiso(perfilPedido, 'usuarios', 'modificacion'))) {
+        const [[otros]] = await connection.query(
+          `SELECT COUNT(*) AS cantidad
+             FROM usuario u
+             INNER JOIN perfilpermiso pp ON pp.idPerfil = u.idPerfil
+             INNER JOIN permiso p ON p.idPermiso = pp.idPermiso
+            WHERE u.idUsuario <> ? AND u.estado = 'activo'
+              AND LOWER(p.modulo) = 'usuarios' AND LOWER(p.accion) = 'modificacion'`,
+          [id]
+        );
+        if (Number(otros.cantidad) === 0) {
+          await connection.rollback();
+          return errorResponse(res, 'Sos la única persona que puede administrar usuarios: si te cambiás el perfil, nadie podría devolvértelo. Primero dale ese permiso a otra persona.', 'SELF_LOCKOUT', 400);
+        }
+      }
+      finalIdPerfil = perfilPedido;
+    }
 
     // 1. Modificamos el usuario base
     const sqlUsuario = 'UPDATE usuario SET username = ?, idPerfil = ?, estado = ? WHERE idUsuario = ?';
@@ -262,11 +363,24 @@ exports.update = asyncHandler(async (req, res) => {
     // 3. 🟢 AUTOMATISMO: Si se editó el perfil, recalculamos si se le activa la credencial de profesor
     await sincronizarFichaProfesor(connection, usuarioActual.idPersona, finalIdPerfil);
 
+    // Los permisos salen del perfil que viaja en el token: si cambió el perfil o se desactivó la
+    // cuenta, se cortan las sesiones abiertas para que el cambio valga en el momento.
+    const cortarSesiones = Number(finalIdPerfil) !== Number(usuarioActual.idPerfil)
+      || (finalEstado === 'inactivo' && usuarioActual.estado !== 'inactivo');
+    if (cortarSesiones) await invalidarSesiones(id, connection);
+    if (finalEstado === 'activo' && usuarioActual.estado !== 'activo') {
+      await connection.query('UPDATE usuario SET activadoManualEn = NOW() WHERE idUsuario = ?', [id]);
+    }
+
     await connection.commit();
-    return successResponse(res, 'Usuario y permisos actualizados con éxito');
+    if (cortarSesiones) olvidarVersion(id);
+    return successResponse(res, 'Usuario actualizado', { sesionesCerradas: cortarSesiones });
 
   } catch (error) {
     await connection.rollback();
+    if (error.code === 'ER_DUP_ENTRY') {
+      return errorResponse(res, 'Ya hay otro usuario con ese DNI o ese correo.', 'DUPLICATE', 409);
+    }
     console.error("Error crítico al actualizar usuario y sincronizar profesor:", error);
     return errorResponse(res, 'Error interno al actualizar la ficha del usuario', 500);
   } finally {
@@ -282,10 +396,17 @@ exports.cambiarEstado = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { estado } = req.body;
 
+  if (!['activo', 'inactivo'].includes(estado)) {
+    return errorResponse(res, 'El estado tiene que ser "activo" o "inactivo".', 'VALIDATION_ERROR', 400);
+  }
+
   const [usuarioExistente] = await db.query(obtenerUsuarioPorId, [id]);
   if (usuarioExistente.length === 0) {
     return errorResponse(res, 'Usuario no encontrado', 'USER_NOT_FOUND', 404);
   }
+
+  const rechazo = await rechazoSobreUsuario(req, usuarioExistente[0], estado === 'activo' ? 'activar' : 'desactivar');
+  if (rechazo) return errorResponse(res, rechazo, 'FORBIDDEN', 403);
 
   if (estado === 'activo') {
     await db.query(
@@ -297,6 +418,8 @@ exports.cambiarEstado = asyncHandler(async (req, res) => {
       `UPDATE usuario SET estado = ?, activadoManualEn = NULL WHERE idUsuario = ?`,
       [estado, id]
     );
+    // Una cuenta desactivada no puede seguir usando la sesión que ya tenía abierta
+    await invalidarSesiones(id);
   }
   const [usuarioActualizado] = await db.query(obtenerUsuarioPorId, [id]);
 
@@ -323,6 +446,9 @@ exports.delete = asyncHandler(async (req, res) => {
   }
 
   const usuario = usuarioExistente[0];
+  const rechazo = await rechazoSobreUsuario(req, usuario, 'eliminar');
+  if (rechazo) return errorResponse(res, rechazo, 'FORBIDDEN', 403);
+
   const idPersona = usuario.idPersona || usuario.idpersona;
 
   const connection = await db.getConnection();

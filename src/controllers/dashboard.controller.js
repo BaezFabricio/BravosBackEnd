@@ -48,40 +48,45 @@ exports.getMetrics = asyncHandler(async (req, res) => {
       ORDER BY daysOverdue DESC
     `);
 
-    // 4. Tarjeta: Membresías (créditos activos) que vencen en los próximos 7 días
+    // 4. Tarjeta: Membresías por vencer. Mismo criterio que el panel del alumno y la lista de usuarios:
+    //    desde el día 1 del mes en que vencen (todas vencen el 10) hasta el vencimiento
     const [porVencerRows] = await db.query(`
       SELECT COUNT(DISTINCT idAlumno) AS total
       FROM credito
       WHERE estado = 'ACTIVO'
-        AND fechaVencimiento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+        AND fechaVencimiento >= CURDATE()
+        AND CURDATE() >= DATE_FORMAT(fechaVencimiento, '%Y-%m-01')
     `);
     const membresiasPorVencer = porVencerRows[0]?.total || 0;
 
     // 6. Tabla Derecha: Clases del Día de Hoy con Ocupación Real (¡Esta mapea con tus capturas de MySQL!)
-    const numeroDiaJs = new Date().getDay();
-    const mapaDiasBD = { 0: "DOMINGO", 1: "LUNES", 2: "MARTES", 3: "MIERCOLES", 4: "JUEVES", 5: "VIERNES", 6: "SABADO" };
-    const diaBuscado = mapaDiasBD[numeroDiaJs];
-
+    // El día sale de la fecha de la base (no del reloj del servidor). Las sesiones únicas solo
+    // aparecen el día de su fecha: antes salían todas las semanas en ese día de la semana.
+    // Los ocupados son las reservas reales de hoy (sin las canceladas). Antes se mostraba
+    // cupoMaximo - cupoDisponible, que no tiene nada que ver con las reservas.
     const [classesRows] = await db.query(`
-      SELECT 
+      SELECT
         c.nombreClase,
         h.horaInicio,
         per.nombrecompleto AS coach,
         c.cupoMaximo,
-        c.cupoDisponible
+        (SELECT COUNT(*) FROM reserva r
+          WHERE r.idHorario = h.idHorario AND r.fechaReserva = CURDATE() AND r.estado <> 'cancelada') AS ocupados
       FROM diaclase c
       INNER JOIN horarioclase h ON c.idClase = h.idClase
       LEFT JOIN profesor p ON c.idProfesor = p.idProfesor
       LEFT JOIN persona per ON p.idPersona = per.idPersona
-      WHERE h.dia = ? AND c.estado = 'Activo'
+      WHERE h.dia = ELT(DAYOFWEEK(CURDATE()), 'DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO')
+        AND (h.fechaEspecifica IS NULL OR h.fechaEspecifica = CURDATE())
+        AND c.estado = 'Activo'
       ORDER BY h.horaInicio ASC
-    `, [diaBuscado]);
+    `);
 
     const clasesDeHoy = classesRows.map(cls => ({
       name: cls.nombreClase,
       time: cls.horaInicio ? cls.horaInicio.slice(0, 5) : "00:00",
       coach: cls.coach || "Staff Bravos",
-      spots: `${cls.cupoMaximo - cls.cupoDisponible}/${cls.cupoMaximo}`
+      spots: `${Number(cls.ocupados) || 0}/${cls.cupoMaximo}`
     }));
 
     // 7. Grilla Inferior: Actividad Reciente (Muestra las últimas personas registradas de forma segura)

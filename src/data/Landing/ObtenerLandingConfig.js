@@ -42,12 +42,7 @@ const ObtenerLandingConfig = async () => {
       legalTitular: '',
       legalCuit: '',
       legalDomicilio: '',
-      // Datos bancarios para transferencia
-      bancoEntidad: '',
-      titularCuenta: '',
-      cuitTransferencia: '',
-      cvuTransferencia: '',
-      aliasTransferencia: '',
+      // Los datos bancarios no van acá porque esta ruta es pública: se piden con sesión en GET /landing/banco
     };
 
     filasTexto.forEach(({ clave, valor }) => {

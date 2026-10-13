@@ -3,7 +3,10 @@ const { errorResponse } = require('../utils/response');
 const { NOMBRE_COOKIE, leerCookie } = require('../functions/sesionCookie');
 const { corsOptions } = require('../config/cors');
 const envConfig = require('../config/env');
-const { versionActual } = require('../functions/versionSesion');
+const { estadoSesion } = require('../functions/versionSesion');
+
+// Lo único que puede hacer una cuenta que todavía tiene la contraseña temporal
+const PERMITIDAS_CON_CONTRASENA_TEMPORAL = ['/auth/cambiar-contrasena', '/auth/me'];
 
 const METODOS_SEGUROS = ['GET', 'HEAD', 'OPTIONS'];
 const PATRON_DEV = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):\d+$/;
@@ -41,9 +44,15 @@ async function authenticateToken(req, res, next) {
   // Si la contraseña cambió después de emitir este token, la sesión ya no vale
   // (los tokens anteriores a este control no traen "sv": cuentan como versión 0)
   try {
-    const vigente = await versionActual(decoded.idUsuario);
-    if (vigente === null || (Number(decoded.sv) || 0) !== vigente) {
+    const estado = await estadoSesion(decoded.idUsuario);
+    if (estado === null || (Number(decoded.sv) || 0) !== estado.version) {
       return errorResponse(res, 'Tu sesión se cerró. Volvé a iniciar sesión.', 'SESSION_REVOKED', 401);
+    }
+    if (estado.debeCambiar) {
+      const ruta = (req.originalUrl || '').split('?')[0];
+      if (!PERMITIDAS_CON_CONTRASENA_TEMPORAL.some((p) => ruta.endsWith(p))) {
+        return errorResponse(res, 'Tenés que crear tu contraseña antes de seguir.', 'PASSWORD_CHANGE_REQUIRED', 403);
+      }
     }
   } catch (error) {
     console.error('Error al validar la sesión:', error.message);

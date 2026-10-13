@@ -55,6 +55,7 @@ const SOLO_AUTENTICADAS = {
   'GET /api/vv1/pagos/mi-historial': 'Historial de membresías propio',
   'POST /api/vv1/logros/sincronizar': 'Logros propios',
   'GET /api/vv1/profesores/mis-clases': 'Ver mis clases (el controlador exige ser profesor)',
+  'GET /landing/banco': 'Datos bancarios del gimnasio para pagar por transferencia: los necesita cualquier alumno con sesión (no son datos de otras personas)',
 };
 // Prefijos completos (todas sus rutas son de datos propios).
 const PREFIJOS_SOLO_AUTENTICADOS = {

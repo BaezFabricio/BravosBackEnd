@@ -147,7 +147,7 @@ exports.login = asyncHandler(async (req, res) => {
   }
 
   // 1. 🟢 CONTROL DE ESTADO EXPLICITO: Si obtenerDatosLogin no traía el estado, lo buscamos acá
-  const [checkUser] = await db.query('SELECT estado, sesion_version FROM usuario WHERE idUsuario = ?', [usuario.idUsuario]);
+  const [checkUser] = await db.query('SELECT estado, sesion_version, debe_cambiar_contrasena FROM usuario WHERE idUsuario = ?', [usuario.idUsuario]);
   const estadoReal = checkUser[0]?.estado || usuario.estado || 'activo';
 
   if (estadoReal === 'inactivo') {
@@ -222,6 +222,8 @@ exports.login = asyncHandler(async (req, res) => {
       avatarUrl: usuario.avatarUrl || null,
       idProfesor, // 👈 el panel de profesor ya no cae a 1 fijo
       idAlumno,
+      // Cuenta creada por un admin: hasta que cambie la contraseña temporal, solo puede hacer eso
+      debeCambiarContrasena: Number(checkUser[0]?.debe_cambiar_contrasena) === 1,
     },
     permisos: listaPermisosFormateada, // 👈 Ahora el array viaja con tus datos de MySQL
   });
@@ -464,7 +466,7 @@ exports.recuperarContrasena = asyncHandler(async (req, res) => {
       // El enlace llegó al correo: eso también confirma que el correo es suyo
       // También sube la versión de sesión: se cierran todas las sesiones abiertas con la contraseña vieja
       await conexion.query(
-        'UPDATE usuario SET contrasena = ?, correo_verificado = 1, sesion_version = sesion_version + 1 WHERE idUsuario = ?',
+        'UPDATE usuario SET contrasena = ?, correo_verificado = 1, debe_cambiar_contrasena = 0, sesion_version = sesion_version + 1 WHERE idUsuario = ?',
         [hashed, vigente.idUsuario]
       );
       await conexion.commit();
@@ -516,14 +518,20 @@ exports.cambiarContrasena = asyncHandler(async (req, res) => {
   // Verificar que la contraseña actual es correcta
   const esValida = await comparePassword(contrasenaActual, usuario.contrasena);
   if (!esValida) {
-    return errorResponse(res, 'La contraseña actual no es correcta', 'INVALID_PASSWORD', 401);
+    // 400 y no 401: la sesión es válida, solo se equivocó de contraseña (un 401 la cerraría en el navegador)
+    return errorResponse(res, 'La contraseña actual no es correcta', 'INVALID_PASSWORD', 400);
+  }
+
+  // La nueva no puede ser la misma (sobre todo cuando reemplaza la contraseña temporal)
+  if (await comparePassword(contrasenaNueva, usuario.contrasena)) {
+    return errorResponse(res, 'La nueva contraseña tiene que ser distinta de la actual', 'SAME_PASSWORD', 400);
   }
 
   // Hashear la nueva contraseña
   const contrasenaNuevaHasheada = await hashPassword(contrasenaNueva);
 
-  // Actualizar la contraseña
-  await db.query('UPDATE usuario SET contrasena = ? WHERE idUsuario = ?', [contrasenaNuevaHasheada, idUsuarioReal]);
+  // Actualizar la contraseña (y deja de ser temporal)
+  await db.query('UPDATE usuario SET contrasena = ?, debe_cambiar_contrasena = 0 WHERE idUsuario = ?', [contrasenaNuevaHasheada, idUsuarioReal]);
 
   // Se cierran las sesiones de los otros dispositivos; esta se renueva con la versión nueva
   const versionNueva = await versionSesion.invalidarSesiones(idUsuarioReal);
