@@ -183,8 +183,9 @@ exports.marcarAsistencia = asyncHandler(async (req, res) => {
       estado === 'presente'
         ? 'El profesor registró tu asistencia como PRESENTE en la clase de hoy.'
         : 'El profesor registró tu asistencia como AUSENTE en la clase de hoy.',
-      '/alumno/reservas'
-    );
+      '/alumno/reservas',
+    { cuerpo: 'Se registró tu asistencia de hoy' }
+  );
   }
 
   return successResponse(res, 'Asistencia registrada correctamente.', {

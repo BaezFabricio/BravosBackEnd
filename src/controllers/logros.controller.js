@@ -33,8 +33,9 @@ exports.sincronizar = asyncHandler(async (req, res) => {
       'sistema',
       `🏆 ¡Logro desbloqueado: ${LOGROS[codigo]}!`,
       `Conseguiste el logro "${LOGROS[codigo]}". ¡Seguí así!`,
-      '/alumno'
-    );
+      '/alumno',
+    { cuerpo: '🏆 ¡Desbloqueaste un logro!' }
+  );
   }
 
   return successResponse(res, 'Logros sincronizados', { nuevos });

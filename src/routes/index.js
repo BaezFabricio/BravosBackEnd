@@ -18,6 +18,7 @@ const pagosRoutes = require('./pagos.routes');
 const marcasRoutes = require('./marcas.routes');
 const logrosRoutes = require('./logros.routes');
 const arrepentimientoRoutes = require('./arrepentimiento.routes');
+const pushRoutes = require('./push.routes');
 
 const router = Router();
 
@@ -38,5 +39,6 @@ router.use('/pagos', pagosRoutes);
 router.use('/marcas', marcasRoutes);
 router.use('/logros', logrosRoutes);
 router.use('/arrepentimiento', arrepentimientoRoutes);
+router.use('/push', pushRoutes);
 
 module.exports = router;

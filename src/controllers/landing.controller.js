@@ -1,10 +1,53 @@
 const cloudinary = require('../config/cloudinary');
+const db = require('../config/db');
+
+/*
+ * Cifras reales para la página principal. Es una ruta pública, así que solo devuelve
+ * cantidades (nunca nombres ni datos de personas) y se guarda 5 minutos en memoria para que
+ * muchas visitas no le peguen a la base una y otra vez.
+ */
+const DURACION_ESTADISTICAS_MS = 5 * 60 * 1000;
+let cacheEstadisticas = { hasta: 0, datos: null };
+
+async function obtenerEstadisticasPublicas() {
+  if (cacheEstadisticas.datos && cacheEstadisticas.hasta > Date.now()) return cacheEstadisticas.datos;
+  try {
+    // Atletas: alumnos con cuenta activa y un plan vigente hoy
+    const [[atletas]] = await db.query(
+      `SELECT COUNT(DISTINCT c.idAlumno) AS n
+         FROM credito c
+         INNER JOIN alumno a ON a.idAlumno = c.idAlumno
+         INNER JOIN usuario u ON u.idPersona = a.idPersona AND u.estado = 'activo'
+        WHERE c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE()`
+    );
+    // Coaches: profesores con cuenta activa (una persona cuenta una sola vez)
+    const [[coaches]] = await db.query(
+      `SELECT COUNT(DISTINCT p.idPersona) AS n
+         FROM profesor p
+         INNER JOIN usuario u ON u.idPersona = p.idPersona AND u.estado = 'activo'`
+    );
+    // Clases por semana: horarios que se repiten cada semana, de clases activas
+    const [[clases]] = await db.query(
+      `SELECT COUNT(*) AS n
+         FROM horarioclase h
+         INNER JOIN diaclase c ON c.idClase = h.idClase
+        WHERE c.estado = 'Activo' AND h.fechaEspecifica IS NULL`
+    );
+    const datos = { atletas: Number(atletas.n) || 0, coaches: Number(coaches.n) || 0, clasesPorSemana: Number(clases.n) || 0 };
+    cacheEstadisticas = { hasta: Date.now() + DURACION_ESTADISTICAS_MS, datos };
+    return datos;
+  } catch (error) {
+    console.error('Error al calcular las cifras de la página principal:', error.message);
+    return null; // la página simplemente no muestra las cifras
+  }
+}
 
 const obtenerConfiguracion = async (req, res) => {
   try {
     const ObtenerLandingConfig = require('../data/Landing/ObtenerLandingConfig.js');
     const config = await ObtenerLandingConfig();
-    return res.status(200).json(config);
+    const estadisticas = await obtenerEstadisticasPublicas();
+    return res.status(200).json(estadisticas ? { ...config, estadisticas } : config);
   } catch (error) {
     res.status(500).json({ error: "Error al obtener configuración" });
   }
@@ -68,7 +111,6 @@ const actualizarConfiguracion = async (req, res) => {
  * los ve cualquier usuario con sesión (el alumno los necesita para pagar) y los cambia solo
  * quien tiene permiso de modificar la configuración.
  */
-const db = require('../config/db');
 const { CLAVES_BANCO } = require('../data/Landing/ActualizarLandingTextos.js');
 
 const obtenerDatosBancarios = async (req, res) => {

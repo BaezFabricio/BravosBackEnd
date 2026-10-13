@@ -162,7 +162,8 @@ const acreditarPago = async ({ paymentId, idAlumno, idPlan, importe }) => {
     idUsuario, 'credito',
     'Membresía activada',
     `Tu pago por ${plan.nombre} fue confirmado. Ya podés reservar clases.`,
-    '/alumno/creditos'
+    '/alumno/creditos',
+    { cuerpo: 'Tu pago fue confirmado. Ya podés reservar' }
   )
 
   // Comprobante por correo. Sin await a propósito: el envío SMTP tarda segundos

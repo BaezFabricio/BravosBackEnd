@@ -59,8 +59,9 @@ async function avisarVencimientosProximos() {
       'credito',
       'Tu membresía vence pronto',
       `Tu membresía vence ${cuando}. Renovala para seguir reservando clases.`,
-      '/alumno/creditos'
-    );
+      '/alumno/creditos',
+    { cuerpo: 'Tu membresía vence pronto. Renovala para seguir reservando' }
+  );
     if (m.correo) {
       await sendMembresiaVenceEmail(m.correo, m.nombrecompleto || 'Alumno', {
         plan: m.plan, fechaVencimiento: m.vence, diasRestantes: m.dias, creditosDisponibles: m.disponibles,
@@ -108,8 +109,9 @@ async function procesarMembresias() {
           'sistema',
           'Membresía por vencer',
           `Recordá abonar tu membresía antes del día 10. Te quedan ${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}.`,
-          '/alumno/creditos'
-        );
+          '/alumno/creditos',
+    { cuerpo: 'Recordá abonar tu membresía antes del día 10' }
+  );
         if (u.correo) {
           await sendMembresiaPorVencerEmail(u.correo, u.nombrecompleto || 'Alumno', diasRestantes).catch(() => {});
         }
@@ -162,8 +164,9 @@ async function procesarMembresias() {
         'sistema',
         'Membresía vencida',
         'No registramos el pago de tu membresía este mes. Tu cuenta fue suspendida. Contactá al box para regularizar.',
-        '/alumno/creditos'
-      );
+        '/alumno/creditos',
+    { cuerpo: 'Hay novedades sobre tu membresía' }
+  );
     }
 
     if (aInactivar.length > 0) {
@@ -191,8 +194,9 @@ async function procesarMembresias() {
         'sistema',
         'Cuenta reactivada',
         'Tu membresía está activa. Ya podés reservar clases.',
-        '/alumno/creditos'
-      );
+        '/alumno/creditos',
+    { cuerpo: 'Tu membresía está activa. Ya podés reservar' }
+  );
     }
 
     if (aActivar.length > 0) {

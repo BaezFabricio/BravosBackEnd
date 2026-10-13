@@ -40,7 +40,8 @@ exports.crearSolicitud = asyncHandler(async (req, res) => {
     'sistema',
     'Solicitud de arrepentimiento',
     `${nombre} (DNI ${dni}, ${correo}) pidió revocar una compra. Código ${codigo}. Hay que responder y reintegrar si corresponde.`,
-    null
+    null,
+    { cuerpo: 'Nueva solicitud de arrepentimiento' }
   ).catch(() => {});
   sendArrepentimientoEmails({ codigo, nombre, dni, correo, telefono, fechaCompra, detalle }).catch(() => {});
 

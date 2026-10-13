@@ -74,8 +74,9 @@ async function subirDocumento(req, res) {
       'documentos',
       'Nuevo comprobante',
       `${nombreAlumno} cargó un ${tipoLabel}.`,
-      `/admin/usuarios/${idUsuario}`
-    ).catch(() => {});
+      `/admin/usuarios/${idUsuario}`,
+    { cuerpo: 'Nuevo comprobante para revisar' }
+  ).catch(() => {});
 
     return res.status(201).json({ data: doc[0] });
   } catch (err) {

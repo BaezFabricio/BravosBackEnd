@@ -220,8 +220,9 @@ exports.insert = asyncHandler(async (req, res) => {
     crearNotificacion(idUsuarioProfesor, 'sistema',
       'Nueva clase asignada',
       `Se te asignó la clase "${nombreClase}" (${tipoClase}). Ya aparece en tu panel de asistencia.`,
-      '/profesor/rutinas'
-    );
+      '/profesor/rutinas',
+    { cuerpo: `Se te asignó la clase "${nombreClase}"` }
+  );
   }
   const cantHorarios = esUnica ? 1 : diasSemana.length;
   crearNotificacionAdmins('sistema', 'Clase creada', `Se creó la clase "${nombreClase}" con ${cantHorarios} horario(s).`, '/admin/clases');
@@ -406,15 +407,17 @@ exports.updateEstado = asyncHandler(async (req, res) => {
     crearNotificacion(idUsuarioProfesor, 'sistema',
       'Estado de clase actualizado',
       `La clase "${claseInfo.nombreClase}" cambió su estado a "${estado}".`,
-      '/profesor/rutinas'
-    );
+      '/profesor/rutinas',
+    { cuerpo: `La clase "${claseInfo.nombreClase}" cambió de estado` }
+  );
   }
   if (estado === 'Inactivo' || estado === 'Cancelado') {
     notificarAlumnosDeClase(Number(id), 'sistema',
       'Clase cancelada',
       `La clase "${claseInfo.nombreClase}" fue cancelada. Contactá con el box para más información.`,
-      '/alumno/reservas'
-    );
+      '/alumno/reservas',
+    { cuerpo: `Se canceló la clase "${claseInfo.nombreClase}" que tenías reservada` }
+  );
   }
 
   return successResponse(res, 'Estado de la clase actualizado correctamente', {
@@ -442,15 +445,17 @@ exports.delete = asyncHandler(async (req, res) => {
   await notificarAlumnosDeClase(Number(id), 'sistema',
     'Clase eliminada',
     `La clase "${claseAEliminar.nombreClase}" fue eliminada del sistema. Tus reservas asociadas fueron canceladas.`,
-    '/alumno/reservas'
+    '/alumno/reservas',
+    { cuerpo: `Se eliminó la clase "${claseAEliminar.nombreClase}". Tus reservas se cancelaron` }
   );
   const idUsuarioProfesor = await getIdUsuarioPorProfesor(claseAEliminar.idProfesor);
   if (idUsuarioProfesor) {
     crearNotificacion(idUsuarioProfesor, 'sistema',
       'Clase eliminada',
       `La clase "${claseAEliminar.nombreClase}" fue eliminada del sistema.`,
-      '/profesor/rutinas'
-    );
+      '/profesor/rutinas',
+    { cuerpo: `Se eliminó la clase "${claseAEliminar.nombreClase}"` }
+  );
   }
 
   // Obtener los idHorario de esta clase para poder borrar las reservas asociadas

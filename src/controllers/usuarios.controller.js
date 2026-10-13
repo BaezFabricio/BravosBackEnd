@@ -427,7 +427,8 @@ exports.cambiarEstado = asyncHandler(async (req, res) => {
     estado === 'activo' ? 'Cuenta activada' : 'Cuenta desactivada',
     estado === 'activo'
       ? 'Tu cuenta fue activada. Ya podés acceder al sistema normalmente.'
-      : 'Tu cuenta fue desactivada por un administrador. Contactá con el box para más información.'
+      : 'Tu cuenta fue desactivada por un administrador. Contactá con el box para más información.', null,
+    { cuerpo: estado === 'activo' ? 'Tu cuenta fue activada' : 'Hay novedades sobre tu cuenta' }
   );
 
   return successResponse(res, `Usuario marcado como ${estado}`, usuarioActualizado[0]);
@@ -741,7 +742,8 @@ exports.createAbonoUsuario = asyncHandler(async (req, res) => {
   crearNotificacion(Number(id), 'credito',
     'Membresía activada',
     `Se cargó el plan "${tipoAbono}" con ${plan.cantidadCreditos} créditos. Vence el ${vencimientoReal}.`,
-    '/alumno/creditos'
+    '/alumno/creditos',
+    { cuerpo: 'Tu membresía fue activada' }
   );
 
   return successResponse(res, 'Abono cargado y Alumno inicializado correctamente', null, 201);
@@ -864,8 +866,9 @@ exports.updateAbonoUsuario = asyncHandler(async (req, res) => {
       estadoFormateado === 'CANCELADO'
         ? 'Tu membresía fue marcada como cancelada. Contactá con el box para más información.'
         : `Tu membresía fue actualizada: ${totalCreditos} créditos en total, vence el ${vencimientoFinal}.`,
-      '/alumno/creditos'
-    );
+      '/alumno/creditos',
+    { cuerpo: 'Hay novedades sobre tu membresía' }
+  );
   }
 
   return successResponse(res, 'Abono modificado correctamente en la base de datos');
@@ -897,8 +900,9 @@ exports.cancelarAbonoUsuario = asyncHandler(async (req, res) => {
     crearNotificacion(idUsuarioAlumno, 'credito',
       'Membresía cancelada',
       'Tu membresía fue cancelada por un administrador. Tus créditos disponibles fueron puestos en cero. Contactá con el box.',
-      '/alumno/creditos'
-    );
+      '/alumno/creditos',
+    { cuerpo: 'Hay novedades sobre tu membresía' }
+  );
   }
 
   return successResponse(res, 'Abono cancelado correctamente');
@@ -980,8 +984,9 @@ exports.aprobarAbono = asyncHandler(async (req, res) => {
         'credito',
         'Membresía activada',
         'Tu abono fue aprobado por el administrador. Ya podés reservar clases.',
-        '/alumno/creditos'
-      );
+        '/alumno/creditos',
+    { cuerpo: 'Tu comprobante fue aprobado. Ya podés reservar' }
+  );
     }
   } catch {}
 

@@ -1,10 +1,15 @@
 const db = require('../config/db');
+const { enviarPush } = require('./push.service');
 
 /**
  * Crea una notificación para un usuario específico.
  * Falla silenciosamente para no romper el flujo principal.
+ *
+ * push (opcional): además la manda al celular como notificación push. Solo las notificaciones
+ * que lo traen llegan al teléfono. Su texto se ve con el teléfono bloqueado, así que va sin
+ * datos sensibles: { cuerpo, titulo? } (la pantalla que abre es el mismo link de la notificación).
  */
-async function crearNotificacion(idUsuario, tipo, titulo, mensaje, link = null) {
+async function crearNotificacion(idUsuario, tipo, titulo, mensaje, link = null, push = null) {
   try {
     await db.query(
       'INSERT INTO notificacion (idUsuario, tipo, titulo, mensaje, link) VALUES (?, ?, ?, ?, ?)',
@@ -12,13 +17,15 @@ async function crearNotificacion(idUsuario, tipo, titulo, mensaje, link = null) 
     );
   } catch (err) {
     console.error('Error al crear notificación:', err.message);
+    return;
   }
+  if (push) enviarPush(idUsuario, { ...push, url: push.url ?? link }); // sin await: no demora la respuesta
 }
 
 /**
  * Crea una notificación para todos los administradores (idPerfil = 1).
  */
-async function crearNotificacionAdmins(tipo, titulo, mensaje, link = null) {
+async function crearNotificacionAdmins(tipo, titulo, mensaje, link = null, push = null) {
   try {
     // Administradores = perfiles con permiso de modificar usuarios (los perfiles se crean
     // desde el panel, así que no se puede depender de un id fijo como el 1).
@@ -31,7 +38,7 @@ async function crearNotificacionAdmins(tipo, titulo, mensaje, link = null) {
          AND (u.idPerfil = 1 OR (LOWER(p.modulo) = 'usuarios' AND LOWER(p.accion) = 'modificacion'))`
     );
     for (const admin of admins) {
-      await crearNotificacion(admin.idUsuario, tipo, titulo, mensaje, link);
+      await crearNotificacion(admin.idUsuario, tipo, titulo, mensaje, link, push);
     }
   } catch (err) {
     console.error('Error al notificar admins:', err.message);
@@ -82,7 +89,7 @@ async function getIdUsuarioPorProfesor(idProfesor) {
 /**
  * Notifica a todos los alumnos con reservas activas en una clase.
  */
-async function notificarAlumnosDeClase(idClase, tipo, titulo, mensaje, link = null) {
+async function notificarAlumnosDeClase(idClase, tipo, titulo, mensaje, link = null, push = null) {
   try {
     const [rows] = await db.query(
       `SELECT DISTINCT u.idUsuario FROM reserva r
@@ -93,7 +100,7 @@ async function notificarAlumnosDeClase(idClase, tipo, titulo, mensaje, link = nu
       [idClase]
     );
     for (const row of rows) {
-      await crearNotificacion(row.idUsuario, tipo, titulo, mensaje, link);
+      await crearNotificacion(row.idUsuario, tipo, titulo, mensaje, link, push);
     }
   } catch (err) {
     console.error('Error al notificar alumnos de clase:', err.message);

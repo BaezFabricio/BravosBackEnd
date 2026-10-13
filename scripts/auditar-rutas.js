@@ -56,6 +56,9 @@ const SOLO_AUTENTICADAS = {
   'POST /api/vv1/logros/sincronizar': 'Logros propios',
   'GET /api/vv1/profesores/mis-clases': 'Ver mis clases (el controlador exige ser profesor)',
   'GET /landing/banco': 'Datos bancarios del gimnasio para pagar por transferencia: los necesita cualquier alumno con sesión (no son datos de otras personas)',
+  'GET /api/vv1/push/clave-publica': 'Clave pública VAPID para activar notificaciones (es pública por diseño)',
+  'POST /api/vv1/push/suscripcion': 'Activa las notificaciones push del propio dispositivo (el usuario sale del token)',
+  'DELETE /api/vv1/push/suscripcion': 'Desactiva las notificaciones push del propio dispositivo (solo borra las del usuario del token)',
 };
 // Prefijos completos (todas sus rutas son de datos propios).
 const PREFIJOS_SOLO_AUTENTICADOS = {

@@ -10,8 +10,15 @@ const PERMITIDAS_CON_CONTRASENA_TEMPORAL = ['/auth/cambiar-contrasena', '/auth/m
 
 const METODOS_SEGUROS = ['GET', 'HEAD', 'OPTIONS'];
 const PATRON_DEV = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):\d+$/;
+// La dirección pública del frontend (FRONTEND_URL: el túnel de ngrok o el dominio de producción)
+// también es el propio sistema. Sin esto, todo lo que guarda datos fallaba con 403 desde el celular.
+const ORIGEN_FRONTEND = (() => {
+  try { return new URL(process.env.FRONTEND_URL).origin; } catch { return null; }
+})();
 const origenPermitido = (origin) =>
-  corsOptions.origin.includes(origin) || (envConfig.nodeEnv !== 'production' && PATRON_DEV.test(origin));
+  corsOptions.origin.includes(origin) ||
+  (ORIGEN_FRONTEND !== null && origin === ORIGEN_FRONTEND) ||
+  (envConfig.nodeEnv !== 'production' && PATRON_DEV.test(origin));
 
 /**
  * Middleware para verificar autenticación (JWT)
