@@ -30,6 +30,8 @@ function problemaDeClase({ nombreClase, cupo, estado, idProfesor, idPlan, diasSe
   if (!Number.isInteger(cupo) || cupo < 1 || cupo > CUPO_MAXIMO) return `El cupo tiene que ser un número entre 1 y ${CUPO_MAXIMO}.`;
   if (!['Activo', 'Inactivo'].includes(estado)) return 'El estado tiene que ser Activo o Inactivo.';
   if (!Number.isInteger(Number(idProfesor)) || Number(idProfesor) <= 0) return 'Elegí el coach de la clase.';
+  // Toda clase pertenece a un plan: define a quién se le muestra, quién puede reservarla y a quién se avisa
+  if (!Number.isInteger(Number(idPlan)) || Number(idPlan) <= 0) return 'Elegí el plan de la clase.';
   const hora = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
   if (!hora.test(String(horaInicio || '')) || !hora.test(String(horaFin || ''))) return 'Elegí la hora de inicio y de fin.';
   if (String(horaInicio).slice(0, 5) >= String(horaFin).slice(0, 5)) return 'La hora de fin tiene que ser posterior a la de inicio.';
