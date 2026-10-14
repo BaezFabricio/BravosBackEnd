@@ -142,6 +142,7 @@ const sendClaseDisponibleEmail = async (email, nombre, clase) => {
           </p>
 
           <div style="background: #f8f8f8; border-left: 4px solid #a3e635; padding: 16px 20px; margin-bottom: 28px; border-radius: 0 6px 6px 0;">
+            ${clase.nombrePlan ? `<p style="margin: 0 0 6px 0; font-size: 13px; color: #666;">🏷️ <strong>Plan:</strong> ${clase.nombrePlan}</p>` : ''}
             ${clase.nombreProfesor ? `<p style="margin: 0 0 6px 0; font-size: 13px; color: #666;">👟 <strong>Coach:</strong> ${clase.nombreProfesor}</p>` : ''}
             ${fechaStr ? `<p style="margin: 0 0 6px 0; font-size: 13px; color: #666;">📅 <strong>Fecha:</strong> ${fechaStr}</p>` : ''}
             ${clase.horaInicio ? `<p style="margin: 0; font-size: 13px; color: #666;">🕐 <strong>Horario:</strong> ${clase.horaInicio.substring(0,5)} hs</p>` : ''}

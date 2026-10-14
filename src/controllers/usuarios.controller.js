@@ -452,10 +452,44 @@ exports.delete = asyncHandler(async (req, res) => {
 
   const idPersona = usuario.idPersona || usuario.idpersona;
 
+  // Los pagos son registros de dinero (ingresos, reportes): nunca se borran en cascada.
+  // Si el usuario tiene pagos, o clases/rutinas dictadas como profesor, no se puede eliminar: se desactiva.
+  const [[pagosDelAlumno]] = await db.query(
+    `SELECT COUNT(*) AS n FROM pago p INNER JOIN alumno a ON p.idAlumno = a.idAlumno WHERE a.idPersona = ?`, [idPersona]);
+  const [[pagosOperados]] = await db.query('SELECT COUNT(*) AS n FROM pago WHERE idUsuarioOperador = ?', [id]);
+  if (pagosDelAlumno.n > 0 || pagosOperados.n > 0) {
+    return errorResponse(res,
+      'No se puede eliminar: tiene pagos registrados y se perdería el historial de ingresos. Desactivá la cuenta en su lugar.',
+      'HAS_PAYMENTS', 409);
+  }
+  const [[actividadProfesor]] = await db.query(
+    `SELECT (SELECT COUNT(*) FROM diaclase d INNER JOIN profesor pr ON d.idProfesor = pr.idProfesor WHERE pr.idPersona = ?)
+          + (SELECT COUNT(*) FROM rutina r INNER JOIN profesor pr ON r.idProfesor = pr.idProfesor WHERE pr.idPersona = ?) AS n`,
+    [idPersona, idPersona]);
+  if (actividadProfesor.n > 0) {
+    return errorResponse(res,
+      'No se puede eliminar: tiene clases o rutinas a su nombre como profesor. Desactivá la cuenta en su lugar.',
+      'HAS_CLASSES', 409);
+  }
+
   const connection = await db.getConnection();
   await connection.beginTransaction();
 
   try {
+    // 0. Datos propios del alumno que no tienen valor sin él (rutinas asignadas, planificación, historial de avisos)
+    await connection.query(`
+      DELETE ar FROM alumnorutina ar
+      INNER JOIN alumno a ON ar.idAlumno = a.idAlumno
+      WHERE a.idPersona = ?`, [idPersona]);
+    await connection.query(`
+      DELETE pl FROM planificacionatleta pl
+      INNER JOIN alumno a ON pl.idAlumno = a.idAlumno
+      WHERE a.idPersona = ?`, [idPersona]);
+    await connection.query(`
+      DELETE nh FROM notificacion_historial nh
+      INNER JOIN alumno a ON nh.idAlumno = a.idAlumno
+      WHERE a.idPersona = ?`, [idPersona]);
+
     // 1. Asistencias de las reservas del alumno
     await connection.query(`
       DELETE asi FROM asistencia asi
@@ -480,6 +514,7 @@ exports.delete = asyncHandler(async (req, res) => {
 
     // 5. Registro de profesor (si aplica)
     await connection.query('DELETE FROM profesor WHERE idPersona = ?', [idPersona]);
+    await connection.query('DELETE FROM administrador WHERE idPersona = ?', [idPersona]);
 
     // 6. Usuario (notificaciones se borran por CASCADE)
     await connection.query('DELETE FROM usuario WHERE idUsuario = ?', [id]);

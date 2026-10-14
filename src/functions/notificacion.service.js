@@ -1,6 +1,27 @@
 const db = require('../config/db');
 const { enviarPush } = require('./push.service');
 
+// Historial por usuario: se conservan las últimas N (las más viejas se borran), así la tabla no crece sin límite
+const MAX_POR_USUARIO = 200;
+
+async function podarBandeja(idUsuario) {
+  try {
+    await db.query(
+      `DELETE FROM notificacion
+       WHERE idUsuario = ?
+         AND idNotificacion NOT IN (
+           SELECT idNotificacion FROM (
+             SELECT idNotificacion FROM notificacion
+             WHERE idUsuario = ? ORDER BY creadoEn DESC, idNotificacion DESC LIMIT ${MAX_POR_USUARIO}
+           ) ultimas
+         )`,
+      [idUsuario, idUsuario]
+    );
+  } catch (err) {
+    console.error('Error al podar la bandeja:', err.message);
+  }
+}
+
 /**
  * Crea una notificación para un usuario específico.
  * Falla silenciosamente para no romper el flujo principal.
@@ -19,6 +40,7 @@ async function crearNotificacion(idUsuario, tipo, titulo, mensaje, link = null, 
     console.error('Error al crear notificación:', err.message);
     return;
   }
+  podarBandeja(idUsuario); // sin await: no demora la respuesta
   if (push) enviarPush(idUsuario, { ...push, url: push.url ?? link }); // sin await: no demora la respuesta
 }
 
@@ -124,13 +146,37 @@ async function crearTablaNotificacion() {
       FOREIGN KEY (idUsuario) REFERENCES usuario(idUsuario) ON DELETE CASCADE
     )
   `);
+  // Índice para leer la bandeja de un usuario ordenada por fecha sin recorrer toda la tabla
+  try {
+    await db.query(`ALTER TABLE notificacion ADD INDEX idx_notif_usuario_fecha (idUsuario, creadoEn)`);
+  } catch { /* índice ya existe */ }
   // Agregar columna si la tabla ya existía sin ella
   try {
     await db.query(`ALTER TABLE notificacion ADD COLUMN link VARCHAR(255) NULL AFTER mensaje`);
   } catch { /* columna ya existe */ }
 }
 
+/**
+ * Guarda en el historial del propio usuario un aviso de acción ya mostrado en pantalla
+ * (por ejemplo "Clase creada exitosamente"). Queda como no leído, igual que cualquier notificación. Evita repetir el mismo aviso en pocos segundos.
+ */
+async function registrarAccion(idUsuario, tipo, titulo, mensaje) {
+  const [repetida] = await db.query(
+    `SELECT 1 FROM notificacion
+     WHERE idUsuario = ? AND tipo = ? AND titulo = ? AND mensaje = ? AND creadoEn > (NOW() - INTERVAL 10 SECOND) LIMIT 1`,
+    [idUsuario, tipo, titulo, mensaje]
+  );
+  if (repetida.length) return false;
+  await db.query(
+    'INSERT INTO notificacion (idUsuario, tipo, titulo, mensaje, link, leida) VALUES (?, ?, ?, ?, NULL, 0)',
+    [idUsuario, tipo, titulo, mensaje]
+  );
+  podarBandeja(idUsuario);
+  return true;
+}
+
 module.exports = {
+  registrarAccion,
   crearNotificacion,
   crearNotificacionAdmins,
   getIdUsuarioPorReserva,

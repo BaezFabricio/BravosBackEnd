@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
+const { registrarAccion } = require('../functions/notificacion.service');
 
 /**
  * GET /notificaciones
@@ -57,4 +58,36 @@ exports.marcarTodasLeidas = asyncHandler(async (req, res) => {
   );
 
   return successResponse(res, 'Todas las notificaciones marcadas como leídas');
+});
+
+/**
+ * DELETE /notificaciones
+ * Vacía la bandeja del usuario autenticado: borra solo sus propias notificaciones (el usuario sale del token).
+ */
+exports.limpiarMias = asyncHandler(async (req, res) => {
+  const idUsuario = req.user.idUsuario;
+
+  await db.query('DELETE FROM notificacion WHERE idUsuario = ?', [idUsuario]);
+
+  return successResponse(res, 'Bandeja de notificaciones vacía');
+});
+
+// Solo estos tipos pueden registrarse desde la pantalla: los del sistema (reserva, credito…) los crea únicamente el servidor
+const TIPOS_DE_ACCION = ['exito', 'error', 'advertencia', 'info'];
+
+/**
+ * POST /notificaciones/registro
+ * Guarda en el historial del propio usuario un aviso de acción (el usuario sale del token, nunca del cuerpo).
+ */
+exports.registrarAccion = asyncHandler(async (req, res) => {
+  const { tipo, titulo, mensaje } = req.body || {};
+  const limpiar = (v, max) => [...String(v ?? '')].map(c => (c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127 ? ' ' : c)).join('').trim().slice(0, max);
+
+  if (!TIPOS_DE_ACCION.includes(tipo)) return errorResponse(res, 'Tipo de aviso no válido', null, 400);
+  const t = limpiar(titulo, 150);
+  const m = limpiar(mensaje, 500);
+  if (!t || !m) return errorResponse(res, 'El aviso necesita título y mensaje', null, 400);
+
+  await registrarAccion(req.user.idUsuario, tipo, t, m);
+  return successResponse(res, 'Aviso registrado');
 });

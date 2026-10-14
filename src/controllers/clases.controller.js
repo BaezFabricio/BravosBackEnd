@@ -10,6 +10,7 @@ const eliminarClase = require('../data/Clases/EliminarClase');
 const insertarHorarioClase = require('../data/HorariosClase/InsertarHorarioClase');
 const eliminarHorariosPorClase = require('../data/HorariosClase/EliminarHorariosPorClase');
 const queryObtenerClasesAlumnos = require('../data/Clases/ObtenerClasesAlumnos');
+const queryClasesParaAlumno = require('../data/Clases/ObtenerClasesParaAlumno');
 
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
@@ -23,7 +24,7 @@ const diaDeFecha = (fecha) => ['DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVE
  * Revisa los datos de una clase (al crear y al editar). Devuelve el mensaje del problema o null.
  * El cupo es el límite real de reservas: se guarda igual en cupoMaximo y cupoDisponible.
  */
-function problemaDeClase({ nombreClase, cupo, estado, idProfesor, diasSemana, fechaEspecifica, horaInicio, horaFin }) {
+function problemaDeClase({ nombreClase, cupo, estado, idProfesor, idPlan, diasSemana, fechaEspecifica, horaInicio, horaFin }) {
   const nombre = String(nombreClase || '').trim();
   if (nombre.length < 2 || nombre.length > 100) return 'El nombre de la clase tiene que tener entre 2 y 100 caracteres.';
   if (!Number.isInteger(cupo) || cupo < 1 || cupo > CUPO_MAXIMO) return `El cupo tiene que ser un número entre 1 y ${CUPO_MAXIMO}.`;
@@ -109,6 +110,16 @@ exports.getClasesDisponibles = asyncHandler(async (req, res) => {
 });
 
 /**
+ * GET /api/clases/para-mi
+ * Turnos que puede reservar el alumno que consulta: solo los de los planes que tiene vigentes.
+ * El alumno sale del token; no se acepta ningún id del pedido.
+ */
+exports.getClasesParaMi = asyncHandler(async (req, res) => {
+  const [rows] = await db.query(queryClasesParaAlumno, [req.user.idUsuario]);
+  return successResponse(res, 'Turnos de tu plan obtenidos correctamente', rows);
+});
+
+/**
  * GET /api/clases/turnos/resumen
  * Agrupa los turnos realmente usados en horarioclase (no hay tabla maestra de turnos,
  * "turno" es un texto libre por horario) junto con su rango horario real y cuántos
@@ -135,6 +146,29 @@ exports.getTurnosResumen = asyncHandler(async (req, res) => {
  * GET /api/clases/:id
  * Obtiene una clase por ID
  */
+/**
+ * Reglas para cambiar una clase entre "todas las semanas" y "un solo día". Devuelve, para cada cambio, el motivo
+ * por el que NO se puede (o null si se puede). Las usan la pantalla de editar (para avisar antes) y el guardado.
+ */
+async function restriccionesDeTipo(idClase) {
+  const [horarios] = await db.query(
+    "SELECT idHorario, DATE_FORMAT(fechaEspecifica, '%Y-%m-%d') AS fechaEspecifica FROM horarioclase WHERE idClase = ?", [idClase]
+  );
+  const unico = horarios.find((h) => h.fechaEspecifica);
+  let aRecurrente = null;
+  let aUnica = null;
+  if (unico) {
+    const [[anotados]] = await db.query(
+      "SELECT COUNT(*) AS total FROM reserva WHERE idHorario = ? AND estado = 'proxima'", [unico.idHorario]
+    );
+    if (Number(anotados.total) > 0) aRecurrente = 'Hay alumnos anotados para esa fecha: cancelá sus reservas antes de pasarla a "todas las semanas".';
+  } else if (horarios.length) {
+    const [[reservas]] = await db.query('SELECT COUNT(*) AS total FROM reserva WHERE idHorario IN (?)', [horarios.map((h) => h.idHorario)]);
+    if (Number(reservas.total) > 0) aUnica = 'Esta clase ya tuvo reservas: pasarla a un solo día borraría ese historial. Si necesitás una clase puntual, creá una nueva.';
+  }
+  return { horarios, unico, aRecurrente, aUnica };
+}
+
 exports.getById = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const [clase] = await db.query(obtenerClasePorId, [id]);
@@ -154,7 +188,8 @@ exports.getById = asyncHandler(async (req, res) => {
     rutina = { ...rutinaRows[0], ejercicios };
   }
 
-  return successResponse(res, 'Clase obtuvo correctamente', { ...clase[0], rutina });
+  const { aRecurrente, aUnica } = await restriccionesDeTipo(id);
+  return successResponse(res, 'Clase obtuvo correctamente', { ...clase[0], rutina, noSePuedePasarARecurrente: aRecurrente, noSePuedePasarAUnica: aUnica });
 });
 
 /**
@@ -181,7 +216,7 @@ exports.insert = asyncHandler(async (req, res) => {
 
   // El cupo es uno solo: el límite real de reservas
   const cupo = Number(cupoMaximo ?? cupoDisponible);
-  const problema = problemaDeClase({ nombreClase, cupo, estado, idProfesor, diasSemana, fechaEspecifica, horaInicio, horaFin });
+  const problema = problemaDeClase({ nombreClase, cupo, estado, idProfesor, idPlan, diasSemana, fechaEspecifica, horaInicio, horaFin });
   if (problema) return errorResponse(res, problema, 'VALIDATION_ERROR', 400);
   if (!tipoClase || !turno) {
     return errorResponse(res, 'Faltan el tipo de clase o el turno.', 'VALIDATION_ERROR', 400);
@@ -270,7 +305,7 @@ exports.update = asyncHandler(async (req, res) => {
   // El cupo es uno solo: el límite real de reservas. Antes la pantalla de editar mandaba
   // cupoMaximo = 20 fijo y el número elegido iba a cupoDisponible, así que la clase aceptaba 20.
   const cupo = Number(cupoMaximo ?? cupoDisponible);
-  const problema = problemaDeClase({ nombreClase, cupo, estado, idProfesor, diasSemana, fechaEspecifica, horaInicio, horaFin });
+  const problema = problemaDeClase({ nombreClase, cupo, estado, idProfesor, idPlan, diasSemana, fechaEspecifica, horaInicio, horaFin });
   if (problema) return errorResponse(res, problema, 'VALIDATION_ERROR', 400);
   if (!tipoClase || !turno) {
     return errorResponse(res, 'Faltan el tipo de clase o el turno.', 'VALIDATION_ERROR', 400);
@@ -282,18 +317,19 @@ exports.update = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Clase no encontrada', 'NOT_FOUND', 404);
   }
 
-  // Una clase no cambia de tipo al editarla: la sesión única sigue siendo única y la recurrente, recurrente
+  // Una clase puede pasar de recurrente a sesión única (y al revés) mientras no haya alumnos anotados que se perjudiquen
   const [horariosActuales] = await db.query(
     "SELECT idHorario, dia, DATE_FORMAT(fechaEspecifica, '%Y-%m-%d') AS fechaEspecifica FROM horarioclase WHERE idClase = ?", [id]
   );
   const horarioUnico = horariosActuales.find((h) => h.fechaEspecifica);
-  if (horarioUnico && !fechaEspecifica) {
-    return errorResponse(res, 'Esta clase es una sesión única: elegí su fecha.', 'VALIDATION_ERROR', 400);
+  const pasaARecurrente = Boolean(horarioUnico) && !fechaEspecifica;
+  const pasaAUnica = !horarioUnico && Boolean(fechaEspecifica);
+  if (pasaARecurrente || pasaAUnica) {
+    const { aRecurrente, aUnica } = await restriccionesDeTipo(id);
+    const motivo = pasaARecurrente ? aRecurrente : aUnica;
+    if (motivo) return errorResponse(res, motivo, 'HAS_RESERVATIONS', 409);
   }
-  if (!horarioUnico && fechaEspecifica) {
-    return errorResponse(res, 'Una clase recurrente no se puede pasar a sesión única. Creá una clase nueva.', 'VALIDATION_ERROR', 400);
-  }
-  if (horarioUnico && fechaEspecifica !== horarioUnico.fechaEspecifica) {
+  if (horarioUnico && !pasaARecurrente && fechaEspecifica !== horarioUnico.fechaEspecifica) {
     const [[conReservas]] = await db.query(
       "SELECT COUNT(*) AS total FROM reserva WHERE idHorario = ? AND estado = 'proxima'", [horarioUnico.idHorario]
     );
@@ -316,6 +352,27 @@ exports.update = asyncHandler(async (req, res) => {
     fechaAviso,
     id
   ]);
+
+  if (pasaARecurrente) {
+    // La sesión única se convierte en el primer día semanal (conserva su historial) y se agregan los demás
+    const [primero, ...resto] = diasSemana;
+    await db.query(
+      'UPDATE horarioclase SET dia = ?, fechaEspecifica = NULL, horaInicio = ?, horaFin = ?, turno = ? WHERE idHorario = ?',
+      [primero, horaInicio, horaFin, turno, horarioUnico.idHorario]
+    );
+    for (const dia of resto) {
+      await db.query(insertarHorarioClase, [dia, horaInicio, horaFin, turno, id, null]);
+    }
+    await guardarRutinaDeClase(id, idProfesor, nombreClase, rutina);
+    return successResponse(res, 'Clase actualizada correctamente', { idClase: Number(id) });
+  }
+
+  if (pasaAUnica) {
+    await db.query('DELETE FROM horarioclase WHERE idClase = ?', [id]);
+    await db.query(insertarHorarioClase, [diaDeFecha(fechaEspecifica), horaInicio, horaFin, turno, id, fechaEspecifica]);
+    await guardarRutinaDeClase(id, idProfesor, nombreClase, rutina);
+    return successResponse(res, 'Clase actualizada correctamente', { idClase: Number(id) });
+  }
 
   if (horarioUnico) {
     await db.query(
@@ -487,6 +544,7 @@ exports.delete = asyncHandler(async (req, res) => {
 module.exports = {
   getAll: exports.getAll,
   getClasesDisponibles: exports.getClasesDisponibles, // 🟢 Ahora sí exportado correctamente
+  getClasesParaMi: exports.getClasesParaMi,
   getTurnosResumen: exports.getTurnosResumen,
   getById: exports.getById,
   insert: exports.insert,

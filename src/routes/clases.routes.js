@@ -7,6 +7,7 @@ const { requirePermission } = require('../middlewares/permissions.middleware');
 
 
 router.get('/disponibles', clasesController.getClasesDisponibles);
+router.get('/para-mi', authenticateToken, clasesController.getClasesParaMi);
 router.get('/turnos/resumen', authenticateToken, requirePermission('Clases', 'consulta'), clasesController.getTurnosResumen);
 
 // Rutas existentes corregidas y protegidas:
