@@ -65,6 +65,7 @@ const SOLO_AUTENTICADAS = {
 const PREFIJOS_SOLO_AUTENTICADOS = {
   '/api/vv1/marcas': 'Marcas personales: siempre del propio alumno',
   '/api/vv1/notificaciones': 'Notificaciones propias',
+  '/api/vv1/guias': 'Guías de bienvenida propias: el usuario sale del token y solo se aceptan guías de una lista fija',
 };
 
 // ── Recorrido de rutas ────────────────────────────────────────────────────

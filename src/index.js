@@ -10,6 +10,7 @@ const { crearTablaNotificacion } = require('./functions/notificacion.service');
 const { crearTablasLegales } = require('./functions/consentimiento');
 const { crearTablaRecuperacion } = require('./functions/recuperacion');
 const { crearTablaPush } = require('./functions/push.service');
+const { crearTablaGuias } = require('./functions/guias.service');
 const { iniciarCronPublicacion } = require('./functions/publicacionCron');
 const { iniciarCronMembresias } = require('./functions/membresiasCron');
 
@@ -40,6 +41,7 @@ async function startServer() {
       await db.query(crearTablaAvatarUsuario);
       await crearTablaNotificacion();
       await crearTablaPush(); // dispositivos con notificaciones push activadas
+      await crearTablaGuias(); // qué guías de bienvenida vio cada persona
       await crearTablasLegales();
       await crearTablaRecuperacion();
       // Migraciones independientes — fallan silenciosamente si la columna ya existe
