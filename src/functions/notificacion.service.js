@@ -111,14 +111,16 @@ async function getIdUsuarioPorProfesor(idProfesor) {
 /**
  * Notifica a todos los alumnos con reservas activas en una clase.
  */
-async function notificarAlumnosDeClase(idClase, tipo, titulo, mensaje, link = null, push = null) {
+async function notificarAlumnosDeClase(idClase, tipo, titulo, mensaje, link = null, push = null, soloVigentes = false) {
   try {
+    // soloVigentes: deja afuera a quien tenía reservada una clase que ya se dio (la reserva sigue en "proxima" en la base)
     const [rows] = await db.query(
       `SELECT DISTINCT u.idUsuario FROM reserva r
        INNER JOIN alumno a ON r.idAlumno = a.idAlumno
        INNER JOIN usuario u ON a.idPersona = u.idPersona
        INNER JOIN horarioclase hc ON r.idHorario = hc.idHorario
-       WHERE hc.idClase = ? AND r.estado = 'proxima'`,
+       WHERE hc.idClase = ? AND r.estado = 'proxima'
+       ${soloVigentes ? 'AND (r.fechaReserva > CURDATE() OR (r.fechaReserva = CURDATE() AND hc.horaFin > CURTIME()))' : ''}`,
       [idClase]
     );
     for (const row of rows) {

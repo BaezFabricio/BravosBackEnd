@@ -321,9 +321,43 @@ exports.update = asyncHandler(async (req, res) => {
 
   // Una clase puede pasar de recurrente a sesión única (y al revés) mientras no haya alumnos anotados que se perjudiquen
   const [horariosActuales] = await db.query(
-    "SELECT idHorario, dia, DATE_FORMAT(fechaEspecifica, '%Y-%m-%d') AS fechaEspecifica FROM horarioclase WHERE idClase = ?", [id]
+    "SELECT idHorario, dia, DATE_FORMAT(fechaEspecifica, '%Y-%m-%d') AS fechaEspecifica, TIME_FORMAT(horaInicio, '%H:%i') AS hi, TIME_FORMAT(horaFin, '%H:%i') AS hf FROM horarioclase WHERE idClase = ?", [id]
   );
   const horarioUnico = horariosActuales.find((h) => h.fechaEspecifica);
+
+  // Una clase de un solo día se puede editar hasta su hora de fin; después es historial (la hora la da la base, en hora local)
+  if (horarioUnico) {
+    const [[estado]] = await db.query(
+      'SELECT (fechaEspecifica < CURDATE() OR (fechaEspecifica = CURDATE() AND horaFin <= CURTIME())) AS termino FROM horarioclase WHERE idHorario = ?',
+      [horarioUnico.idHorario]
+    );
+    if (Number(estado?.termino) === 1) {
+      return errorResponse(res, 'Esta clase ya terminó: no se puede editar.', 'CLASS_ENDED', 409);
+    }
+  }
+
+  // Si cambia el horario o el coach, se avisa a los alumnos que tienen reservada una clase que todavía no se dio
+  const horaAntes = horariosActuales[0] ? { inicio: horariosActuales[0].hi, fin: horariosActuales[0].hf } : null;
+  const avisarCambios = async () => {
+    const cambios = [];
+    const nuevoInicio = String(horaInicio).slice(0, 5);
+    const nuevoFin = String(horaFin).slice(0, 5);
+    if (horaAntes && (horaAntes.inicio !== nuevoInicio || horaAntes.fin !== nuevoFin)) {
+      cambios.push('el horario ahora es de ' + nuevoInicio + ' a ' + nuevoFin + ' (antes ' + horaAntes.inicio + ' a ' + horaAntes.fin + ')');
+    }
+    if (Number(claseExistente[0].idProfesor) !== Number(idProfesor)) {
+      const [[prof]] = await db.query('SELECT per.nombrecompleto AS nombre FROM profesor p INNER JOIN persona per ON p.idPersona = per.idPersona WHERE p.idProfesor = ?', [idProfesor]);
+      cambios.push('ahora la da ' + (prof?.nombre || 'otro coach'));
+    }
+    if (cambios.length === 0) return;
+    const nombre = String(nombreClase).trim();
+    notificarAlumnosDeClase(Number(id), 'sistema', 'Cambió tu clase',
+      'La clase "' + nombre + '" que reservaste tuvo cambios: ' + cambios.join(' y ') + '.',
+      '/alumno/reservas',
+      { cuerpo: 'Cambió tu clase "' + nombre + '": ' + cambios.join(' y ') },
+      true
+    );
+  };
   const pasaARecurrente = Boolean(horarioUnico) && !fechaEspecifica;
   const pasaAUnica = !horarioUnico && Boolean(fechaEspecifica);
   if (pasaARecurrente || pasaAUnica) {
@@ -366,6 +400,7 @@ exports.update = asyncHandler(async (req, res) => {
       await db.query(insertarHorarioClase, [dia, horaInicio, horaFin, turno, id, null]);
     }
     await guardarRutinaDeClase(id, idProfesor, nombreClase, rutina);
+    await avisarCambios();
     return successResponse(res, 'Clase actualizada correctamente', { idClase: Number(id) });
   }
 
@@ -373,6 +408,7 @@ exports.update = asyncHandler(async (req, res) => {
     await db.query('DELETE FROM horarioclase WHERE idClase = ?', [id]);
     await db.query(insertarHorarioClase, [diaDeFecha(fechaEspecifica), horaInicio, horaFin, turno, id, fechaEspecifica]);
     await guardarRutinaDeClase(id, idProfesor, nombreClase, rutina);
+    await avisarCambios();
     return successResponse(res, 'Clase actualizada correctamente', { idClase: Number(id) });
   }
 
@@ -382,6 +418,7 @@ exports.update = asyncHandler(async (req, res) => {
       [diaDeFecha(fechaEspecifica), fechaEspecifica, horaInicio, horaFin, turno, horarioUnico.idHorario]
     );
     await guardarRutinaDeClase(id, idProfesor, nombreClase, rutina);
+    await avisarCambios();
     return successResponse(res, 'Clase actualizada correctamente', { idClase: Number(id) });
   }
 
@@ -421,6 +458,7 @@ exports.update = asyncHandler(async (req, res) => {
   }
 
   await guardarRutinaDeClase(id, idProfesor, nombreClase, rutina);
+  await avisarCambios();
 
   return successResponse(res, 'Clase actualizada correctamente', {
     idClase: Number(id),
