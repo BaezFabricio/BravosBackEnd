@@ -194,7 +194,7 @@ exports.obtenerMisReservas = asyncHandler(async (req, res) => {
         WHEN r.estado = 'cancelada' THEN 'cancelada'
         WHEN asi.estado = 'presente' THEN 'completada'
         WHEN asi.estado = 'ausente' THEN 'inasistencia'
-        WHEN r.estado = 'proxima' AND r.fechaReserva < CURDATE() THEN 'completada'
+        WHEN r.estado = 'proxima' AND (r.fechaReserva < CURDATE() OR (r.fechaReserva = CURDATE() AND h.horaFin <= CURTIME())) THEN 'completada'
         ELSE r.estado
       END AS estadoReserva,
       h.horaInicio,
@@ -289,7 +289,7 @@ exports.obtenerMisRutinas = asyncHandler(async (req, res) => {
      LEFT JOIN persona per ON p.idPersona = per.idPersona
      WHERE u.idUsuario = ?
        AND r.estado = 'proxima'
-       AND r.fechaReserva >= CURDATE()
+       AND (r.fechaReserva > CURDATE() OR (r.fechaReserva = CURDATE() AND h.horaFin > CURTIME()))
      ORDER BY r.fechaReserva ASC, h.horaInicio ASC
      LIMIT 30`,
     [idUsuario]
@@ -343,7 +343,7 @@ exports.obtenerReservasDeUsuario = asyncHandler(async (req, res) => {
         WHEN r.estado = 'cancelada' THEN 'cancelada'
         WHEN asi.estado = 'presente' THEN 'completada'
         WHEN asi.estado = 'ausente' THEN 'inasistencia'
-        WHEN r.estado = 'proxima' AND r.fechaReserva < CURDATE() THEN 'completada'
+        WHEN r.estado = 'proxima' AND (r.fechaReserva < CURDATE() OR (r.fechaReserva = CURDATE() AND h.horaFin <= CURTIME())) THEN 'completada'
         ELSE r.estado
       END AS estadoReserva,
       c.nombreClase,
@@ -381,7 +381,7 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
   try {
     // Traer la reserva y el idCredito asociado desde donde se descontó originalmente
     const sqlReserva = `
-      SELECT r.idReserva, r.fechaReserva, h.horaInicio, r.estado, c.idClase, r.idCredito
+      SELECT r.idReserva, r.fechaReserva, h.horaInicio, h.horaFin, r.estado, c.idClase, r.idCredito
       FROM reserva r
       INNER JOIN horarioclase h ON r.idHorario = h.idHorario
       INNER JOIN diaclase c ON h.idClase = c.idClase
@@ -412,6 +412,14 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
     const fechaClaseTarget = new Date(fechaAño, fechaMes - 1, fechaDia, horaH, horaM, horaS);
     const ahora = new Date();
     
+    // Una clase que ya terminó no se cancela: pasó a ser parte del historial
+    const [finH, finM, finS] = String(reserva.horaFin).split(':');
+    if (new Date(fechaAño, fechaMes - 1, fechaDia, finH, finM, finS || 0) <= ahora) {
+      await connection.rollback();
+      connection.release();
+      return errorResponse(res, 'Esa clase ya terminó, no se puede cancelar.', 'INVALID_STATE', 400);
+    }
+
     const diferenciaHoras = (fechaClaseTarget - ahora) / (1000 * 60 * 60);
     let devuelveCredito = true;
 
