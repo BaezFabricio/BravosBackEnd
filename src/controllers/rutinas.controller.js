@@ -173,7 +173,7 @@ exports.insert = asyncHandler(async (req, res) => {
         'Nueva rutina asignada',
         `Se te asignó la rutina "${nombre}". Podés verla en tu panel.`,
         '/alumno/reservas',
-    { cuerpo: 'Tenés una rutina nueva' }
+    { titulo: 'Nueva rutina asignada', cuerpo: `Tenés una rutina nueva: "${nombre}"${nivel ? ` · nivel ${nivel}` : ''}${duracion ? ` · ${duracion} min` : ''}` }
   );
     }
   }

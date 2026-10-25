@@ -254,11 +254,19 @@ exports.insert = asyncHandler(async (req, res) => {
 
   const idUsuarioProfesor = await getIdUsuarioPorProfesor(idProfesor);
   if (idUsuarioProfesor) {
+    // El aviso dice qué clase es, de qué plan y cuándo se da (antes solo decía que se le asignó una clase)
+    const [[planClase]] = await db.query('SELECT nombre FROM plan WHERE idPlan = ?', [idPlan || 0]);
+    const NOMBRE_DIA = { LUNES: 'Lun', MARTES: 'Mar', MIERCOLES: 'Mié', JUEVES: 'Jue', VIERNES: 'Vie', SABADO: 'Sáb', DOMINGO: 'Dom' };
+    const hora = `${String(horaInicio).slice(0, 5)} a ${String(horaFin).slice(0, 5)} h`;
+    const cuando = esUnica
+      ? `el ${fechaEspecifica.slice(8, 10)}/${fechaEspecifica.slice(5, 7)} de ${hora}`
+      : `${diasSemana.map((d) => NOMBRE_DIA[d] || d).join(', ')} de ${hora}`;
+    const detalle = `"${nombreClase}"${planClase ? ` · Plan ${planClase.nombre}` : ''} · ${cuando} · cupo ${cupo}`;
     crearNotificacion(idUsuarioProfesor, 'sistema',
       'Nueva clase asignada',
-      `Se te asignó la clase "${nombreClase}" (${tipoClase}). Ya aparece en tu panel de asistencia.`,
+      `Se te asignó la clase ${detalle}. Ya aparece en tu panel de asistencia.`,
       '/profesor/rutinas',
-    { cuerpo: `Se te asignó la clase "${nombreClase}"` }
+    { titulo: 'Nueva clase asignada', cuerpo: `Se te asignó ${detalle}` }
   );
   }
   const cantHorarios = esUnica ? 1 : diasSemana.length;
