@@ -177,12 +177,14 @@ exports.marcarAsistencia = asyncHandler(async (req, res) => {
   }
 
   const idUsuarioAlumno = await getIdUsuarioPorReserva(idReserva);
+  const [[claseAsist]] = await db.query('SELECT nombreClase FROM diaclase WHERE idClase = ?', [reservaRows[0].idClase]);
+  const nombreClaseAsist = claseAsist?.nombreClase ? `"${claseAsist.nombreClase}"` : 'la clase';
   if (idUsuarioAlumno) {
     crearNotificacion(idUsuarioAlumno, 'asistencia',
       estado === 'presente' ? 'Asistencia confirmada' : 'Inasistencia registrada',
       estado === 'presente'
-        ? 'El profesor registró tu asistencia como PRESENTE en la clase de hoy.'
-        : 'El profesor registró tu asistencia como AUSENTE en la clase de hoy.',
+        ? `El profesor registró tu asistencia como PRESENTE en ${nombreClaseAsist} de hoy.`
+        : `El profesor registró tu asistencia como AUSENTE en ${nombreClaseAsist} de hoy.`,
       '/alumno/reservas',
     { cuerpo: 'Se registró tu asistencia de hoy' }
   );

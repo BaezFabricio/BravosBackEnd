@@ -161,7 +161,7 @@ const acreditarPago = async ({ paymentId, idAlumno, idPlan, importe }) => {
   crearNotificacion(
     idUsuario, 'credito',
     'Membresía activada',
-    `Tu pago por ${plan.nombre} fue confirmado. Ya podés reservar clases.`,
+    `Tu pago por ${plan.nombre} fue confirmado: ${plan.cantidadCreditos} clases disponibles hasta el ${String(fechaVencimiento.getDate()).padStart(2, '0')}/${String(fechaVencimiento.getMonth() + 1).padStart(2, '0')}/${fechaVencimiento.getFullYear()}. Ya podés reservar.`,
     '/alumno/creditos',
     { cuerpo: 'Tu pago fue confirmado. Ya podés reservar' }
   )

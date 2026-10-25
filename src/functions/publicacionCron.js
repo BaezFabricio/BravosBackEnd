@@ -99,7 +99,7 @@ async function procesarClasesListas() {
         const nombre = alumno.nombre || 'Alumno';
 
         // Notificación en la campanita + push al celular (el texto del push va sin datos sensibles)
-        crearNotificacion(alumno.idUsuario, 'sistema', titulo, mensaje, '/alumno/reservar', { titulo: 'Nueva clase en Bravos Box', cuerpo: cuerpoPush });
+        crearNotificacion(alumno.idUsuario, 'sistema', titulo, mensaje, '/alumno/reservar', { propio: true, titulo: 'Nueva clase en Bravos Box', cuerpo: cuerpoPush });
 
         if (!alumno.correo) continue;
         try {

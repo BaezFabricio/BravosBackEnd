@@ -266,7 +266,7 @@ exports.insert = asyncHandler(async (req, res) => {
       'Nueva clase asignada',
       `Se te asignó la clase ${detalle}. Ya aparece en tu panel de asistencia.`,
       '/profesor/rutinas',
-    { titulo: 'Nueva clase asignada', cuerpo: `Se te asignó ${detalle}` }
+    { propio: true, titulo: 'Nueva clase asignada', cuerpo: `Se te asignó ${detalle}` }
   );
   }
   const cantHorarios = esUnica ? 1 : diasSemana.length;
@@ -362,7 +362,7 @@ exports.update = asyncHandler(async (req, res) => {
     notificarAlumnosDeClase(Number(id), 'sistema', 'Cambió tu clase',
       'La clase "' + nombre + '" que reservaste tuvo cambios: ' + cambios.join(' y ') + '.',
       '/alumno/reservas',
-      { cuerpo: 'Cambió tu clase "' + nombre + '": ' + cambios.join(' y ') },
+      { propio: true, cuerpo: 'Cambió tu clase "' + nombre + '": ' + cambios.join(' y ') },
       true
     );
   };

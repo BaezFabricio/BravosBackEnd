@@ -15,6 +15,7 @@ const { hashPassword } = require('../functions/encryption');
 const { problemaContrasena } = require('../functions/recuperacion');
 const { esSuperAdmin, puedeAsignarPerfil } = require('../functions/escalada');
 const { invalidarSesiones, olvidarVersion } = require('../functions/versionSesion');
+const { sendPagoConfirmadoEmail } = require('../functions/email.service');
 
 // Formato de los datos personales al editar (solo se revisan los que vienen en el pedido)
 function problemaDatosUsuario({ nombre, correo, dni, telefono }) {
@@ -801,6 +802,22 @@ exports.createAbonoUsuario = asyncHandler(async (req, res) => {
     '/alumno/creditos',
     { cuerpo: 'Tu membresía fue activada' }
   );
+
+  // Comprobante por correo también cuando el pago lo carga el administrador (efectivo o transferencia).
+  // Sin await: el envío tarda segundos y la función captura sus propios errores.
+  const [[destino]] = await db.query(
+    'SELECT p.correo, p.nombrecompleto FROM usuario u INNER JOIN persona p ON p.idPersona = u.idPersona WHERE u.idUsuario = ?',
+    [Number(id)]
+  );
+  if (destino?.correo) {
+    sendPagoConfirmadoEmail(destino.correo, destino.nombrecompleto, {
+      plan: plan.nombre,
+      importe: montoFinal,
+      creditos: plan.cantidadCreditos,
+      vencimiento: new Date(`${String(vencimientoReal).slice(0, 10)}T12:00:00`), // T12:00 para que no se corra un día
+      referencia: `Pago-${pagoResult.insertId}`,
+    });
+  }
 
   return successResponse(res, 'Abono cargado y Alumno inicializado correctamente', null, 201);
 });

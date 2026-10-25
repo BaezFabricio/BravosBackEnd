@@ -41,7 +41,9 @@ async function crearNotificacion(idUsuario, tipo, titulo, mensaje, link = null, 
     return;
   }
   podarBandeja(idUsuario); // sin await: no demora la respuesta
-  if (push) enviarPush(idUsuario, { ...push, url: push.url ?? link }); // sin await: no demora la respuesta
+  // El aviso del celular dice lo mismo que la campanita (qué pasó, de qué plan o clase, cuándo). Solo si el que llama marca
+  // propio:true se usa su texto corto aparte (para no mostrar datos sensibles en la pantalla bloqueada)
+  if (push) enviarPush(idUsuario, { ...push, titulo: push.titulo ?? titulo, cuerpo: push.propio ? push.cuerpo : mensaje, url: push.url ?? link }); // sin await: no demora la respuesta
 }
 
 /**
