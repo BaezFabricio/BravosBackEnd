@@ -9,6 +9,7 @@ const eliminarUsuario = require('../data/Usuarios/EliminarUsuario');
 const eliminarPersona = require('../data/Persona/EliminarPersona');
 const cloudinary = require('../config/cloudinary');
 const { asyncHandler } = require('../utils/helpers');
+const { limpiarDataUri } = require('../utils/imagenes');
 const { successResponse, errorResponse } = require('../utils/response');
 const { hashPassword } = require('../functions/encryption');
 const { problemaContrasena } = require('../functions/recuperacion');
@@ -227,14 +228,16 @@ exports.create = asyncHandler(async (req, res) => {
     // 3. Insertamos en la tabla usuario
     const [usuarioResult] = await connection.query(insertarUsuario, [
       personaId,
-      username,
+      username || correo, // si no llega un nombre de usuario, se usa el correo (como en el registro)
       hashedPassword,
       idPerfil,
       'activo',
+      null, // token de verificación: lo pide la consulta desde que el registro verifica el correo; acá no hace falta
     ]);
 
-    // La contraseña la eligió el admin: el usuario tiene que cambiarla al entrar por primera vez
-    await connection.query('UPDATE usuario SET debe_cambiar_contrasena = 1 WHERE idUsuario = ?', [usuarioResult.insertId]);
+    // La cuenta la crea el administrador: el correo se da por verificado (si no, el login lo rechazaría con "verificá tu correo")
+    // y la contraseña es temporal: el usuario tiene que cambiarla al entrar por primera vez
+    await connection.query('UPDATE usuario SET correo_verificado = 1, debe_cambiar_contrasena = 1 WHERE idUsuario = ?', [usuarioResult.insertId]);
 
     // 4. 🟢 AUTOMATISMO: Sincroniza la tabla profesor con la tabla intermedia perfilpermiso
     await sincronizarFichaProfesor(connection, personaId, idPerfil);
@@ -258,6 +261,9 @@ exports.create = asyncHandler(async (req, res) => {
   } catch (error) {
     await connection.rollback();
     console.error("Error al registrar usuario de forma integral:", error);
+    if (error.code === 'ER_DUP_ENTRY') {
+      return errorResponse(res, 'Ya hay otro usuario con ese DNI, correo o nombre de usuario.', 'DUPLICATE', 409);
+    }
     return errorResponse(res, 'Error en el servidor al registrar el perfil y permisos', 500);
   } finally {
     connection.release();
@@ -302,13 +308,20 @@ exports.update = asyncHandler(async (req, res) => {
     const personaActual = personas[0] || {};
 
     const finalNombre = nombrecompleto || nombre || personaActual.nombrecompleto;
-    const finalCorreo = correo || email || personaActual.correo;
-    const finalDni = dni || personaActual.dni;
+    let finalCorreo = correo || email || personaActual.correo;
+    let finalDni = dni || personaActual.dni;
     const finalTelefono = telefono || personaActual.telefono;
-    const finalUsername = username || email || correo || usuarioActual.username;
+    let finalUsername = username || email || correo || usuarioActual.username;
     // Perfil y estado solo los puede cambiar quien tiene permiso de modificar usuarios. Sin esto,
     // cualquiera podía enviar su propio idPerfil y convertirse en administrador.
     const puedeAdministrar = await tienePermiso(req.user?.idPerfil, 'usuarios', 'modificacion');
+    // Quien edita su propia cuenta sin ser administrador solo puede cambiar su nombre y su teléfono: el correo (es el usuario de
+    // ingreso y recibe los avisos), el DNI y el nombre de usuario son datos de identidad que cambia el box.
+    if (!puedeAdministrar) {
+      finalCorreo = personaActual.correo;
+      finalDni = personaActual.dni;
+      finalUsername = usuarioActual.username;
+    }
 
     let finalEstado = usuarioActual.estado;
     if (puedeAdministrar && estado && estado !== usuarioActual.estado) {
@@ -554,7 +567,15 @@ exports.updateAvatar = asyncHandler(async (req, res) => {
     return errorResponse(res, 'Usuario no encontrado', 'USER_NOT_FOUND', 404);
   }
 
-  const resultado = await cloudinary.uploader.upload(avatarData, {
+  // Solo se acepta la imagen en base64 (nunca una dirección web: Cloudinary iría a buscarla) y se le quitan los metadatos.
+  let avatarLimpio;
+  try {
+    avatarLimpio = limpiarDataUri(avatarData);
+  } catch {
+    return errorResponse(res, 'La imagen del avatar tiene que ser JPG, PNG, WebP o GIF', 'AVATAR_INVALID', 400);
+  }
+
+  const resultado = await cloudinary.uploader.upload(avatarLimpio, {
     folder: 'bravos_avatars',
     width: 400,
     height: 400,

@@ -1,5 +1,8 @@
 require('dotenv').config();
 
+// Hora de Argentina para todo el proceso, aunque el servidor esté configurado en UTC (fechas de pago, vencimientos, avisos)
+process.env.TZ = process.env.TZ || 'America/Argentina/Buenos_Aires';
+
 const app = require('./app');
 const db = require('./config/db');
 const envConfig = require('./config/env');

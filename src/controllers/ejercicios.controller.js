@@ -27,7 +27,12 @@ const upload = multer({
   }
 })
 
+// Subir videos de ejercicios es una tarea de quien da las clases: hace falta tener ficha de profesor
+const soloConFichaDeProfesor = (req, res, next) =>
+  req.user?.idProfesor ? next() : errorResponse(res, 'Solo un profesor puede subir videos.', 'NO_PROFESOR', 403)
+
 exports.uploadVideo = [
+  soloConFichaDeProfesor,
   upload.single('video'),
   (req, res) => {
     if (!req.file) return errorResponse(res, 'No se recibió ningún archivo de video', 'NO_FILE', 400)

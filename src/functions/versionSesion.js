@@ -19,9 +19,9 @@ async function estadoSesion(idUsuario) {
   const guardado = cache.get(id);
   if (guardado && guardado.hasta > Date.now()) return guardado.estado;
 
-  const [rows] = await db.query('SELECT sesion_version, debe_cambiar_contrasena FROM usuario WHERE idUsuario = ?', [id]);
+  const [rows] = await db.query('SELECT sesion_version, debe_cambiar_contrasena, estado FROM usuario WHERE idUsuario = ?', [id]);
   const estado = rows.length
-    ? { version: Number(rows[0].sesion_version) || 0, debeCambiar: Number(rows[0].debe_cambiar_contrasena) === 1 }
+    ? { version: Number(rows[0].sesion_version) || 0, debeCambiar: Number(rows[0].debe_cambiar_contrasena) === 1, inactivo: String(rows[0].estado).toLowerCase() === 'inactivo' }
     : null;
   cache.set(id, { estado, hasta: Date.now() + DURACION_CACHE_MS });
   return estado;

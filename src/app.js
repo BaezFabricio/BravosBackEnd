@@ -17,12 +17,27 @@ const app = express();
 
 // ========== MIDDLEWARES GLOBALES ==========
 
+// Cabeceras de seguridad (antes la API no mandaba ninguna y avisaba que corre con Express)
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  if (envConfig.nodeEnv === 'production') res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  next();
+});
+
 // CORS
 app.use(corsMiddleware);
 
 // Body parsers
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+// inflate:false: no se descomprimen cuerpos de pedidos (nadie propio los manda comprimidos); ver SEGURIDAD.md, incidente Node.js 10/2026.
+// Límite de tamaño: 2 MB para todo, salvo la foto de perfil (llega como imagen en base64). Antes eran 50 MB para cualquier
+// pedido, incluso sin sesión, y eso permitía saturar la memoria del servidor con cuerpos enormes.
+const jsonNormal = express.json({ limit: '2mb', inflate: false });
+const jsonFoto = express.json({ limit: '20mb', inflate: false });
+app.use((req, res, next) => (req.method === 'PUT' && /\/usuarios\/\d+\/avatar$/.test(req.path) ? jsonFoto : jsonNormal)(req, res, next));
+app.use(express.urlencoded({ limit: '1mb', extended: true, inflate: false }));
 
 // Documentos de alumnos (comprobantes y datos de salud): solo su dueño o un administrador.
 // Va antes del estático general para que /uploads/documentos nunca se sirva sin sesión.

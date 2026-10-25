@@ -1,3 +1,4 @@
+const { limpiarArchivoDeImagen } = require('../utils/imagenes');
 const db = require('../config/db');
 const path = require('path');
 const fs = require('fs');
@@ -21,6 +22,16 @@ function descartarArchivo(file) {
 async function subirDocumento(req, res) {
   try {
     if (!req.file) return res.status(400).json({ message: 'No se recibió ningún archivo.' });
+
+    // Las fotos de documentos (comprobantes, estudios) pueden traer ubicación y datos del teléfono: se limpian al recibirlas.
+    if (req.file.mimetype && req.file.mimetype.startsWith('image/')) {
+      try {
+        limpiarArchivoDeImagen(req.file.path);
+      } catch {
+        descartarArchivo(req.file);
+        return res.status(400).json({ message: 'La imagen no es válida. Probá con una foto JPG, PNG o WebP.' });
+      }
+    }
 
     const { tipo, consienteDatosSalud } = req.body;
     if (!TIPOS_VALIDOS.includes(tipo)) {

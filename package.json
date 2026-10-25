@@ -8,7 +8,8 @@
     "server": "node src/index.js",
     "dev": "nodemon src/index.js",
     "test": "jest",
-    "auditar": "node scripts/auditar-rutas.js"
+    "auditar": "node scripts/auditar-rutas.js",
+    "probar:imagenes": "node scripts/probar-imagenes.js ./src/utils/imagenes.js"
   },
   "keywords": [
     "api",

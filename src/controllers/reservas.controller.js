@@ -17,6 +17,12 @@ exports.crearReserva = asyncHandler(async (req, res) => {
   }
 
   // 1. 🛡️ VERIFICACIÓN DINÁMICA DE PERMISOS
+  // Los datos del pedido se validan ANTES de tocar la base (un valor raro no debe llegar a la consulta)
+  if (!/^\d+$/.test(String(idHorario))) return errorResponse(res, 'El horario no es válido.', 'INVALID_SCHEDULE', 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fechaReserva)) || Number.isNaN(new Date(fechaReserva + 'T12:00:00').getTime())) {
+    return errorResponse(res, 'La fecha de la reserva no es válida.', 'INVALID_DATE', 400);
+  }
+
   const sqlValidarPermiso = `
     SELECT COUNT(*) as puedeReservar
     FROM perfilpermiso pp
@@ -37,6 +43,8 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     // Buscar la clase y calcular cupos disponibles dinámicamente para la fecha solicitada
     const sqlBuscarClase = `
       SELECT c.idClase, c.cupoMaximo, c.nombreClase, c.estado, c.idPlan,
+        h.dia AS diaHorario, DATE_FORMAT(h.fechaEspecifica, '%Y-%m-%d') AS fechaEspecifica,
+        TIMESTAMPDIFF(MINUTE, NOW(), TIMESTAMP(?, h.horaInicio)) AS minutosParaInicio,
         (
           c.cupoMaximo - (
             SELECT COUNT(*) FROM reserva r2
@@ -47,7 +55,7 @@ exports.crearReserva = asyncHandler(async (req, res) => {
       INNER JOIN diaclase c ON h.idClase = c.idClase
       WHERE h.idHorario = ? FOR UPDATE
     `;
-    const [claseRows] = await connection.query(sqlBuscarClase, [idHorario, fechaReserva, idHorario]);
+    const [claseRows] = await connection.query(sqlBuscarClase, [fechaReserva, idHorario, fechaReserva, idHorario]);
 
     if (claseRows.length === 0) {
       await connection.rollback();
@@ -56,6 +64,19 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     }
 
     const clase = claseRows[0];
+
+    // La fecha tiene que ser un día real, coincidir con el día de la clase y faltar 2 horas o más para que empiece
+    // (estas reglas antes solo las aplicaba la pantalla: el servidor aceptaba cualquier fecha)
+    const DIAS = ['DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO'];
+    const fechaValida = /^\d{4}-\d{2}-\d{2}$/.test(String(fechaReserva)) && !Number.isNaN(new Date(fechaReserva + 'T12:00:00').getTime());
+    const rechazar = async (mensaje, codigo) => { await connection.rollback(); connection.release(); return errorResponse(res, mensaje, codigo, 400); };
+    if (!fechaValida) return rechazar('La fecha de la reserva no es válida.', 'INVALID_DATE');
+    if (clase.fechaEspecifica ? clase.fechaEspecifica !== fechaReserva : DIAS[new Date(fechaReserva + 'T12:00:00').getDay()] !== String(clase.diaHorario).toUpperCase()) {
+      return rechazar('Esa clase no se dicta en la fecha elegida.', 'DATE_MISMATCH');
+    }
+    if (clase.minutosParaInicio === null || clase.minutosParaInicio < 120) {
+      return rechazar('Solo se puede reservar hasta 2 horas antes de que empiece la clase.', 'TOO_LATE');
+    }
 
     if (clase.estado !== 'Activo') {
       await connection.rollback();
@@ -93,18 +114,18 @@ exports.crearReserva = asyncHandler(async (req, res) => {
         FROM credito c
         INNER JOIN pago p ON c.idPago = p.idPago
         WHERE c.idAlumno = ? AND p.idPlan = ? AND c.estado = 'ACTIVO'
-          AND c.creditosCisponibles > 0 AND c.fechaVencimiento >= CURDATE()
+          AND c.creditosCisponibles > 0 AND c.fechaVencimiento >= CURDATE() AND c.fechaVencimiento >= ?
         ORDER BY c.fechaVencimiento ASC LIMIT 1 FOR UPDATE
       `;
-      creditoParams = [idAlumno, clase.idPlan];
+      creditoParams = [idAlumno, clase.idPlan, fechaReserva];
     } else {
       sqlBuscarCredito = `
         SELECT idCredito, creditosCisponibles, creditosUtilizados
         FROM credito
-        WHERE idAlumno = ? AND estado = 'ACTIVO' AND creditosCisponibles > 0 AND fechaVencimiento >= CURDATE()
+        WHERE idAlumno = ? AND estado = 'ACTIVO' AND creditosCisponibles > 0 AND fechaVencimiento >= CURDATE() AND fechaVencimiento >= ?
         ORDER BY fechaVencimiento ASC LIMIT 1 FOR UPDATE
       `;
-      creditoParams = [idAlumno];
+      creditoParams = [idAlumno, fechaReserva];
     }
     const [creditoRows] = await connection.query(sqlBuscarCredito, creditoParams);
 

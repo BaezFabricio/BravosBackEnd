@@ -55,6 +55,10 @@ async function authenticateToken(req, res, next) {
     if (estado === null || (Number(decoded.sv) || 0) !== estado.version) {
       return errorResponse(res, 'Tu sesión se cerró. Volvé a iniciar sesión.', 'SESSION_REVOKED', 401);
     }
+    // Una cuenta desactivada por el administrador pierde el acceso al instante (antes seguía operando hasta que vencía el token)
+    if (estado.inactivo) {
+      return errorResponse(res, 'Tu cuenta está desactivada. Contactá al administrador del gimnasio.', 'CUENTA_INACTIVA', 403);
+    }
     if (estado.debeCambiar) {
       const ruta = (req.originalUrl || '').split('?')[0];
       if (!PERMITIDAS_CON_CONTRASENA_TEMPORAL.some((p) => ruta.endsWith(p))) {

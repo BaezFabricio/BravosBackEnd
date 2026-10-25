@@ -9,6 +9,15 @@ const logger = new Logger('ErrorMiddleware');
 function errorHandler(err, req, res, next) {
   logger.error('Error capturado:', err);
 
+  // Errores de subida de archivos: son del pedido (archivo muy grande o de un tipo no permitido), no del servidor
+  if (err.name === 'MulterError') {
+    const grande = err.code === 'LIMIT_FILE_SIZE';
+    return errorResponse(res, grande ? 'El archivo es demasiado grande.' : 'No se pudo recibir el archivo.', grande ? 'FILE_TOO_LARGE' : 'UPLOAD_ERROR', grande ? 413 : 400);
+  }
+  if (typeof err.message === 'string' && /^Solo se permiten (imágenes|videos)/.test(err.message)) {
+    return errorResponse(res, err.message, 'INVALID_FILE_TYPE', 400);
+  }
+
   // Error de validación de BD (duplicado, etc)
   if (err.code === 'ER_DUP_ENTRY') {
     return errorResponse(res, 'Registro duplicado', 'DUPLICATE_ENTRY', 409);

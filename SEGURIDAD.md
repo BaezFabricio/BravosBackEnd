@@ -61,3 +61,31 @@ Todo HTML guardado por usuarios (rutinas, descripciones) se muestra con `sanitiz
 ## Pendientes conocidos (ver Linear)
 
 - FAB-71: revisar la matriz de permisos por perfil (el perfil Alumno tiene permisos de profesor).
+
+## Incidente de Node.js (21/10/2026): descompresor Brotli (CVE-2026-111497)
+
+Node.js corrigió 10 vulnerabilidades, una de ejecución remota de código en el descompresor Brotli de `zlib`
+(versiones corregidas: 22.23.4, 24.22.1 y 26.12.1; **Node 20 y anteriores no tienen corrección**).
+
+- **Cómo nos tocaba:** este backend usa Express 4 (`body-parser` 1.20.5), que **no** descomprime Brotli, así que la
+  falla no era alcanzable por los cuerpos de pedidos. Igual corre sobre el Node de la máquina/servidor, que tiene
+  que estar actualizado (hay otras 9 correcciones: TLS, DNS…).
+- **Hecho:** `express.json` y `express.urlencoded` ahora llevan `inflate: false` (`src/app.js`): un pedido con
+  `Content-Encoding` se rechaza con 415 antes de llegar a un descompresor. Ningún cliente propio los manda comprimidos.
+- **Pendiente (una persona):** actualizar Node a 24.22.1 o posterior en la compu de desarrollo y en el servidor de
+  producción. Comprobar con `node -v`.
+- **Regla desde ahora:** no correr nada en producción sobre una versión de Node que ya no recibe parches
+  (Node 20 y anteriores). Ver también la nota para el informe: `NOTA-INFORME-node-2026-10.md`.
+
+## Imágenes subidas: sin metadatos (23/10/2026)
+
+Las fotos suelen llevar datos ocultos (ubicación GPS, modelo del teléfono, fecha, comentarios). `src/utils/imagenes.js`
+reescribe cada imagen conservando solo lo necesario para dibujarla (JPEG, PNG, WebP y GIF; nunca SVG), y reconoce el
+formato por los bytes, no por el nombre.
+
+- **Landing** (`landing.controller.js`): cada imagen se limpia antes de mandarla a Cloudinary (Cloudinary guarda el original tal cual).
+- **Avatar** (`usuarios.controller.js`): solo se acepta la imagen en base64 (`data:image/...`), nunca una dirección web, y se limpia.
+- **Documentos** (`documentos.controller.js`): las imágenes se limpian al recibirlas. **Los PDF y los videos no se limpian** (pendiente).
+- Prueba: `npm run probar:imagenes`.
+- **Credenciales de Cloudinary:** estaban escritas en `src/config/cloudinary.js`. Ahora salen del `.env` (`CLOUDINARY_*`).
+  **Rotar la clave secreta en el panel de Cloudinary**: estuvo en el código fuente.

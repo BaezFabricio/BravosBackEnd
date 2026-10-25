@@ -1,5 +1,6 @@
 const cloudinary = require('../config/cloudinary');
 const db = require('../config/db');
+const { limpiarArchivoDeImagen } = require('../utils/imagenes');
 
 /*
  * Cifras reales para la página principal. Es una ruta pública, así que solo devuelve
@@ -94,6 +95,8 @@ const actualizarConfiguracion = async (req, res) => {
           folder: 'bravos_landing',
           ...transformaciones[campo],
         };
+        // Se quitan los datos ocultos de la foto (ubicación, teléfono, fecha…) ANTES de subirla: Cloudinary guarda el original tal cual.
+        limpiarArchivoDeImagen(req.files[campo][0].path);
         const resultado = await cloudinary.uploader.upload(req.files[campo][0].path, opciones);
         await ActualizarLandingImagen({ tipo: campo, url: resultado.secure_url });
       }
