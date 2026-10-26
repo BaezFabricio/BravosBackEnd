@@ -1,0 +1,65 @@
+# Servidor de Bravos: base de datos + backend + web con HTTPS automático (Caddy).
+# Uso (desde la carpeta deploy/ del servidor):  docker compose up -d --build
+# Todo reinicia solo si el servidor se reinicia (restart: unless-stopped).
+# Mudarse de proveedor = copiar esta carpeta + restaurar el último backup + cambiar la IP del DNS.
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?definir en .env}
+      MYSQL_DATABASE: ${DB_DATABASE:-bravosdata}
+      TZ: America/Argentina/Buenos_Aires
+    volumes:
+      - dbdata:/var/lib/mysql
+    # Sin "ports": MySQL NO se expone a internet, solo lo ve el backend por la red interna.
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build: ..
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: ./.env
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      TRUST_PROXY: "1"
+      DB_HOST: db
+      DB_USER: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD}
+      DB_DATABASE: ${DB_DATABASE:-bravosdata}
+      DB_PORT: 3306
+      BACKEND_URL: https://${DOMINIO}
+      FRONTEND_URL: https://${DOMINIO}
+      CORS_ORIGIN: https://${DOMINIO}
+    volumes:
+      - uploads:/app/uploads
+    # Sin "ports": solo Caddy habla con el backend.
+
+  web:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO:?definir en .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./web:/srv/web:ro          # carpeta dist/ del frontend (ver SERVIDOR.md)
+      - caddy_data:/data           # certificados HTTPS: no borrar
+      - caddy_config:/config
+
+volumes:
+  dbdata:
+  uploads:
+  caddy_data:
+  caddy_config:

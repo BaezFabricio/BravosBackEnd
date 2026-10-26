@@ -1,0 +1,12 @@
+node_modules
+.env
+.env.*
+.git
+.githooks
+uploads
+backups
+deploy
+scripts
+*.md
+prueba.txt
+postman_collection.json

@@ -1,0 +1,30 @@
+# Un solo dominio para todo: la app y la API comparten origen, así la cookie de sesión funciona sin CORS.
+{$DOMINIO} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Strict-Transport-Security "max-age=15552000; includeSubDomains"
+		-Server
+	}
+
+	# Lo que atiende el backend (mismas rutas que el proxy de Vite en desarrollo)
+	@backend path /api/* /landing/* /uploads/* /health /verificar-cuenta/*
+	handle @backend {
+		reverse_proxy backend:3001
+	}
+
+	# Todo lo demás es la app (React). Los archivos con hash se guardan un año; index.html y los
+	# archivos del service worker nunca, para que las versiones nuevas lleguen enseguida.
+	handle {
+		root * /srv/web
+		@estaticos path /assets/*
+		header @estaticos Cache-Control "public, max-age=31536000, immutable"
+		@sinCache path /index.html /sw.js /push-sw.js /registerSW.js /manifest.webmanifest
+		header @sinCache Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}

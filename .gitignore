@@ -23,5 +23,15 @@ yarn-error.log*
 
 # Documentos que suben los alumnos (comprobantes, certificados médicos, declaraciones juradas):
 # son datos personales y de salud, nunca van al repositorio. Solo se versiona la carpeta vacía.
+uploads/*
+!uploads/documentos/
 uploads/documentos/*
 !uploads/documentos/.gitkeep
+
+# Servidor (deploy/): la copia de la app compilada y los secretos nunca van a git
+deploy/web/*
+!deploy/web/.gitkeep
+deploy/.env
+
+# Copias de seguridad de datos: nunca al repositorio
+backups/

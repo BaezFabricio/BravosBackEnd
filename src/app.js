@@ -19,6 +19,9 @@ const app = express();
 
 // Cabeceras de seguridad (antes la API no mandaba ninguna y avisaba que corre con Express)
 app.disable('x-powered-by');
+// Detrás del proxy del servidor (Caddy) la IP real llega en X-Forwarded-For. Solo se activa con TRUST_PROXY=1:
+// si no hay proxy delante, cualquiera podría falsear su IP y saltarse el límite de intentos.
+if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
