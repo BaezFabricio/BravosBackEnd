@@ -7,7 +7,7 @@ const insertarClase = `
     estado,
     idGimnasio,
     idProfesor,
-    idPlan,
+    tipoPlan,
     fechaPublicacion
   )
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)

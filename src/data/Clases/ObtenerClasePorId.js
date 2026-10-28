@@ -8,9 +8,9 @@ const obtenerClasePorId = `
     c.estado,
     c.idGimnasio,
     c.idProfesor,
-    c.idPlan,
+    c.tipoPlan,
+    tc.nombre AS nombreTipo,
     DATE_FORMAT(c.fechaPublicacion, '%Y-%m-%dT%H:%i:%s') AS fechaPublicacion,
-    p2.nombre AS nombrePlan,
 
     per.nombrecompleto AS nombreProfesor,
     MIN(h.horaInicio) AS horaInicio,
@@ -29,7 +29,7 @@ const obtenerClasePorId = `
   LEFT JOIN profesor p ON c.idProfesor = p.idProfesor
   LEFT JOIN persona per ON p.idPersona = per.idPersona
   LEFT JOIN horarioclase h ON c.idClase = h.idClase
-  LEFT JOIN plan p2 ON c.idPlan = p2.idPlan
+  LEFT JOIN tipo_clase tc ON tc.codigo = c.tipoPlan
 
   -- 🟢 FILTRO ESPECÍFICO: Trae solo la clase que seleccionaste
   WHERE c.idClase = ?
@@ -43,9 +43,9 @@ const obtenerClasePorId = `
     c.estado,
     c.idGimnasio,
     c.idProfesor,
-    c.idPlan,
+    c.tipoPlan,
     c.fechaPublicacion,
-    p2.nombre,
+    tc.nombre,
     per.nombrecompleto
 `;
 

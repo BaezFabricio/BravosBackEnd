@@ -8,7 +8,8 @@ const obtenerClases = `
     c.estado,
     c.idGimnasio,
     c.idProfesor,
-    c.idPlan,
+    c.tipoPlan,
+    tc.nombre AS nombreTipo,
 
     per.nombrecompleto AS nombreProfesor,
     MIN(h.horaInicio) AS horaInicio,
@@ -25,6 +26,7 @@ const obtenerClases = `
   LEFT JOIN profesor p ON c.idProfesor = p.idProfesor
   LEFT JOIN persona per ON p.idPersona = per.idPersona
   LEFT JOIN horarioclase h ON c.idClase = h.idClase
+  LEFT JOIN tipo_clase tc ON tc.codigo = c.tipoPlan
 
   GROUP BY 
     c.idClase, 
@@ -34,7 +36,8 @@ const obtenerClases = `
     c.cupoDisponible, 
     c.estado, 
     c.idGimnasio,
-    c.idPlan,
+    c.tipoPlan,
+    tc.nombre,
     c.idProfesor,
     per.nombrecompleto
 

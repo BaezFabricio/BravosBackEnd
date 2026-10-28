@@ -33,8 +33,8 @@ async function procesarClasesListas() {
         d.idClase,
         d.nombreClase,
         d.fechaPublicacion,
-        d.idPlan,
-        pl.nombre AS nombrePlan,
+        d.tipoPlan,
+        tc.nombre AS nombrePlan,
         hc.horaInicio,
         hc.horaFin,
         DATE_FORMAT(hc.fechaEspecifica, '%Y-%m-%d') AS fechaTxt,
@@ -43,7 +43,7 @@ async function procesarClasesListas() {
         per.nombrecompleto AS nombreProfesor
       FROM diaclase d
       LEFT JOIN horarioclase hc ON hc.idClase = d.idClase
-      LEFT JOIN plan pl ON pl.idPlan = d.idPlan
+      LEFT JOIN tipo_clase tc ON tc.codigo = d.tipoPlan
       LEFT JOIN profesor prof ON prof.idProfesor = d.idProfesor
       LEFT JOIN persona per ON per.idPersona = prof.idPersona
       WHERE d.fechaPublicacion IS NOT NULL
@@ -65,20 +65,20 @@ async function procesarClasesListas() {
 
     for (const clase of Object.values(clasesUnicas)) {
       let enviados = 0;
-      if (!clase.idPlan) { // toda clase debería tener plan; si no lo tiene no se le avisa a nadie
+      if (!clase.tipoPlan) { // toda clase debería tener tipo; si no lo tiene no se le avisa a nadie
         await db.query('UPDATE diaclase SET emailEnviado = 1 WHERE idClase = ?', [clase.idClase]);
         continue;
       }
 
-      // Texto del aviso: qué clase es, de qué plan, cuándo se dicta y quién la da
+      // Texto del aviso: qué clase es, de qué tipo, cuándo se dicta y quién la da
       const cuando = clase.horarios.length ? cuandoSeDicta(clase.horarios) : '';
       const titulo = clase.nombrePlan ? `Nueva clase de ${clase.nombrePlan}` : 'Nueva clase disponible';
       const mensaje = `"${clase.nombreClase}"${clase.nombrePlan ? ` (${clase.nombrePlan})` : ''}${cuando ? `: ${cuando}` : ''}${clase.nombreProfesor ? `, con ${clase.nombreProfesor}` : ''}. Ya podés reservar tu lugar.`;
       // El push se ve con el celular bloqueado: es información pública de la clase, sin datos personales
       const cuerpoPush = `${clase.nombrePlan ? `${clase.nombrePlan}: ` : ''}"${clase.nombreClase}"${cuando ? `, ${cuando}` : ''}. Ya podés reservar.`;
 
-      // Solo les avisa a los alumnos con membresía VIGENTE del plan de la clase (crédito activo y sin vencer).
-      // Un alumno activo pero sin membresía, o con una membresía de otro plan, no recibe nada.
+      // Solo les avisa a los alumnos con membresía VIGENTE del tipo de la clase (crédito activo y sin vencer, de cualquier plan de ese tipo).
+      // Un alumno activo pero sin membresía, o con una membresía de otro tipo, no recibe nada.
       const [alumnos] = await db.query(`
         SELECT DISTINCT
           u.idUsuario,
@@ -89,11 +89,12 @@ async function procesarClasesListas() {
         JOIN usuario u ON u.idPersona = a.idPersona
         JOIN persona per ON per.idPersona = a.idPersona
         JOIN pago pa ON pa.idPago = c.idPago
+        JOIN plan pl ON pl.idPlan = pa.idPlan
         WHERE u.estado = 'activo'
           AND c.estado = 'ACTIVO'
           AND c.fechaVencimiento >= CURDATE()
-          AND pa.idPlan = ?
-      `, [clase.idPlan]);
+          AND pl.tipo = ?
+      `, [clase.tipoPlan]);
 
       for (const alumno of alumnos) {
         const nombre = alumno.nombre || 'Alumno';

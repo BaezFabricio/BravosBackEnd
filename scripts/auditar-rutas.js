@@ -34,6 +34,7 @@ const PUBLICAS = {
   'GET /api/vv1/pagos/planes': 'Catálogo de planes y precios (público)',
   'POST /api/vv1/arrepentimiento': 'Botón de arrepentimiento: la ley exige que funcione sin registrarse (con límite por IP)',
   'GET /api/vv1/clases/disponibles': 'Grilla de clases visible en la web pública',
+  'GET /api/vv1/turnos/publicos': 'Horarios de los turnos del box visibles en la web pública (solo horas, turnos y tipos activos)',
   'GET /landing/config': 'Contenido de la web pública y datos de contacto',
   'GET /health': 'Chequeo de que el servidor responde (no devuelve datos)',
   'GET /verificar-cuenta/:token': 'Verificación de cuenta con el enlace del correo (el token es el secreto)',

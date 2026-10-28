@@ -12,7 +12,8 @@ const actualizarClase = `
     estado = ?,
     idGimnasio = ?,
     idProfesor = ?,
-    idPlan = ?,
+    tipoPlan = ?,
+    idPlan = NULL,
     fechaPublicacion = ?
   WHERE idClase = ?;
 `;

@@ -1,3 +1,4 @@
+const fs = require('fs');
 const cloudinary = require('../config/cloudinary');
 const db = require('../config/db');
 const { limpiarArchivoDeImagen } = require('../utils/imagenes');
@@ -106,6 +107,9 @@ const actualizarConfiguracion = async (req, res) => {
   } catch (error) {
     console.error("Error:", error);
     return res.status(500).json({ ok: false, mensaje: error.message });
+  } finally {
+    // Se borran los archivos temporales (con éxito o sin él): después de subirlos a Cloudinary no hacen falta
+    for (const lista of Object.values(req.files || {})) for (const f of lista) fs.unlink(f.path, () => {});
   }
 };
 

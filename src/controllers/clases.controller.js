@@ -16,29 +16,30 @@ const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
 const { syncEjercicios } = require('./rutinas.controller');
 
-const DIAS_VALIDOS = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO'];
-const CUPO_MAXIMO = 20;
+const CUPO_MAXIMO = 1000; // sin límite práctico: solo frena números absurdos por error de tipeo
+const { tipoExiste } = require('../functions/tiposClase');
 const diaDeFecha = (fecha) => ['DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO'][new Date(fecha + 'T12:00:00').getDay()];
 
 /**
  * Revisa los datos de una clase (al crear y al editar). Devuelve el mensaje del problema o null.
  * El cupo es el límite real de reservas: se guarda igual en cupoMaximo y cupoDisponible.
  */
-function problemaDeClase({ nombreClase, cupo, estado, idProfesor, idPlan, diasSemana, fechaEspecifica, horaInicio, horaFin }) {
+function problemaDeClase({ nombreClase, cupo, estado, idProfesor, tipoPlan, diasSemana, fechaEspecifica, horaInicio, horaFin }) {
   const nombre = String(nombreClase || '').trim();
   if (nombre.length < 2 || nombre.length > 100) return 'El nombre de la clase tiene que tener entre 2 y 100 caracteres.';
-  if (!Number.isInteger(cupo) || cupo < 1 || cupo > CUPO_MAXIMO) return `El cupo tiene que ser un número entre 1 y ${CUPO_MAXIMO}.`;
+  if (!Number.isInteger(cupo) || cupo < 1 || cupo > CUPO_MAXIMO) return 'El cupo tiene que ser un número entero mayor a 0.';
   if (!['Activo', 'Inactivo'].includes(estado)) return 'El estado tiene que ser Activo o Inactivo.';
   if (!Number.isInteger(Number(idProfesor)) || Number(idProfesor) <= 0) return 'Elegí el coach de la clase.';
-  // Toda clase pertenece a un plan: define a quién se le muestra, quién puede reservarla y a quién se avisa
-  if (!Number.isInteger(Number(idPlan)) || Number(idPlan) <= 0) return 'Elegí el plan de la clase.';
+  // Toda clase es de un tipo (CrossFit, Planificación Atleta…): define a quién se le muestra, quién puede reservarla y a quién se avisa
+  if (typeof tipoPlan !== 'string' || !tipoPlan) return 'Elegí el tipo de clase.';
   const hora = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
   if (!hora.test(String(horaInicio || '')) || !hora.test(String(horaFin || ''))) return 'Elegí la hora de inicio y de fin.';
   if (String(horaInicio).slice(0, 5) >= String(horaFin).slice(0, 5)) return 'La hora de fin tiene que ser posterior a la de inicio.';
   if (fechaEspecifica) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fechaEspecifica)) || Number.isNaN(new Date(fechaEspecifica + 'T12:00:00').getTime())) return 'La fecha de la clase no es válida.';
-  } else if (!Array.isArray(diasSemana) || diasSemana.length === 0 || diasSemana.some((d) => !DIAS_VALIDOS.includes(d))) {
-    return 'Elegí al menos un día de la semana.';
+  } else {
+    // Las clases son siempre de un solo día: ya no se crean clases que se repiten todas las semanas
+    return 'Elegí la fecha de la clase.';
   }
   return null;
 }
@@ -206,7 +207,7 @@ exports.insert = asyncHandler(async (req, res) => {
     cupoDisponible,
     estado,
     idProfesor,
-    idPlan,
+    tipoPlan,
     diasSemana,
     fechaEspecifica,
     horaInicio,
@@ -218,11 +219,12 @@ exports.insert = asyncHandler(async (req, res) => {
 
   // El cupo es uno solo: el límite real de reservas
   const cupo = Number(cupoMaximo ?? cupoDisponible);
-  const problema = problemaDeClase({ nombreClase, cupo, estado, idProfesor, idPlan, diasSemana, fechaEspecifica, horaInicio, horaFin });
+  const problema = problemaDeClase({ nombreClase, cupo, estado, idProfesor, tipoPlan, diasSemana, fechaEspecifica, horaInicio, horaFin });
   if (problema) return errorResponse(res, problema, 'VALIDATION_ERROR', 400);
   if (!tipoClase || !turno) {
     return errorResponse(res, 'Faltan el tipo de clase o el turno.', 'VALIDATION_ERROR', 400);
   }
+  if (!(await tipoExiste(tipoPlan, { soloActivos: true }))) return errorResponse(res, 'Elegí un tipo de clase válido.', 'VALIDATION_ERROR', 400);
 
   const esUnica = !!fechaEspecifica;
 
@@ -234,7 +236,7 @@ exports.insert = asyncHandler(async (req, res) => {
     estado,
     null,
     idProfesor,
-    idPlan || null,
+    tipoPlan,
     fechaPublicacion || null,
   ]);
 
@@ -254,14 +256,14 @@ exports.insert = asyncHandler(async (req, res) => {
 
   const idUsuarioProfesor = await getIdUsuarioPorProfesor(idProfesor);
   if (idUsuarioProfesor) {
-    // El aviso dice qué clase es, de qué plan y cuándo se da (antes solo decía que se le asignó una clase)
-    const [[planClase]] = await db.query('SELECT nombre FROM plan WHERE idPlan = ?', [idPlan || 0]);
+    // El aviso dice qué clase es, de qué tipo y cuándo se da (antes solo decía que se le asignó una clase)
+    const [[planClase]] = await db.query('SELECT nombre FROM tipo_clase WHERE codigo = ?', [tipoPlan]);
     const NOMBRE_DIA = { LUNES: 'Lun', MARTES: 'Mar', MIERCOLES: 'Mié', JUEVES: 'Jue', VIERNES: 'Vie', SABADO: 'Sáb', DOMINGO: 'Dom' };
     const hora = `${String(horaInicio).slice(0, 5)} a ${String(horaFin).slice(0, 5)} h`;
     const cuando = esUnica
       ? `el ${fechaEspecifica.slice(8, 10)}/${fechaEspecifica.slice(5, 7)} de ${hora}`
       : `${diasSemana.map((d) => NOMBRE_DIA[d] || d).join(', ')} de ${hora}`;
-    const detalle = `"${nombreClase}"${planClase ? ` · Plan ${planClase.nombre}` : ''} · ${cuando} · cupo ${cupo}`;
+    const detalle = `"${nombreClase}"${planClase ? ` · ${planClase.nombre}` : ''} · ${cuando} · cupo ${cupo}`;
     crearNotificacion(idUsuarioProfesor, 'sistema',
       'Nueva clase asignada',
       `Se te asignó la clase ${detalle}. Ya aparece en tu panel de asistencia.`,
@@ -302,7 +304,7 @@ exports.update = asyncHandler(async (req, res) => {
     cupoDisponible,
     estado,
     idProfesor,
-    idPlan,
+    tipoPlan,
     diasSemana,
     fechaEspecifica,
     horaInicio,
@@ -315,7 +317,7 @@ exports.update = asyncHandler(async (req, res) => {
   // El cupo es uno solo: el límite real de reservas. Antes la pantalla de editar mandaba
   // cupoMaximo = 20 fijo y el número elegido iba a cupoDisponible, así que la clase aceptaba 20.
   const cupo = Number(cupoMaximo ?? cupoDisponible);
-  const problema = problemaDeClase({ nombreClase, cupo, estado, idProfesor, idPlan, diasSemana, fechaEspecifica, horaInicio, horaFin });
+  const problema = problemaDeClase({ nombreClase, cupo, estado, idProfesor, tipoPlan, diasSemana, fechaEspecifica, horaInicio, horaFin });
   if (problema) return errorResponse(res, problema, 'VALIDATION_ERROR', 400);
   if (!tipoClase || !turno) {
     return errorResponse(res, 'Faltan el tipo de clase o el turno.', 'VALIDATION_ERROR', 400);
@@ -325,6 +327,11 @@ exports.update = asyncHandler(async (req, res) => {
 
   if (claseExistente.length === 0) {
     return errorResponse(res, 'Clase no encontrada', 'NOT_FOUND', 404);
+  }
+
+  // Una clase puede conservar su tipo aunque se haya desactivado; para cambiarlo hay que elegir uno activo
+  if (!(await tipoExiste(tipoPlan, { soloActivos: tipoPlan !== claseExistente[0].tipoPlan }))) {
+    return errorResponse(res, 'Elegí un tipo de clase válido.', 'VALIDATION_ERROR', 400);
   }
 
   // Una clase puede pasar de recurrente a sesión única (y al revés) mientras no haya alumnos anotados que se perjudiquen
@@ -392,7 +399,7 @@ exports.update = asyncHandler(async (req, res) => {
     estado,
     null,
     idProfesor,
-    idPlan || null,
+    tipoPlan,
     fechaAviso,
     id
   ]);

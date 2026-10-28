@@ -20,6 +20,8 @@ const logrosRoutes = require('./logros.routes');
 const arrepentimientoRoutes = require('./arrepentimiento.routes');
 const pushRoutes = require('./push.routes');
 const guiasRoutes = require('./guias.routes');
+const turnosRoutes = require('./turnos.routes');
+const tiposClaseRoutes = require('./tiposClase.routes');
 
 const router = Router();
 
@@ -42,5 +44,7 @@ router.use('/logros', logrosRoutes);
 router.use('/arrepentimiento', arrepentimientoRoutes);
 router.use('/push', pushRoutes);
 router.use('/guias', guiasRoutes);
+router.use('/turnos', turnosRoutes);
+router.use('/tipos-clase', tiposClaseRoutes);
 
 module.exports = router;

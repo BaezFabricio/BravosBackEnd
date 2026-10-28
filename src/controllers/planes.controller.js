@@ -2,7 +2,7 @@ const db = require('../config/db');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
 
-const TIPOS_VALIDOS = ['ClaseCross', 'PlanificacionAtleta'];
+const { tipoExiste } = require('../functions/tiposClase');
 
 /**
  * GET /planes
@@ -11,12 +11,13 @@ exports.getAll = asyncHandler(async (req, res) => {
   // Además de los datos del plan, cuántos alumnos lo tienen activo hoy (crédito activo y sin vencer).
   // Solo cantidades, nunca quiénes: esta ruta exige el permiso de Membresías.
   const [planes] = await db.query(`
-    SELECT pl.idPlan, pl.nombre, pl.descripcion, pl.precio, pl.cantidadCreditos, pl.tipo,
+    SELECT pl.idPlan, pl.nombre, pl.descripcion, pl.precio, pl.cantidadCreditos, pl.tipo, tc.nombre AS nombreTipo,
            (SELECT COUNT(DISTINCT c.idAlumno)
               FROM credito c
               INNER JOIN pago p ON c.idPago = p.idPago
              WHERE p.idPlan = pl.idPlan AND c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE()) AS alumnosActivos
       FROM plan pl
+      LEFT JOIN tipo_clase tc ON tc.codigo = pl.tipo
      ORDER BY pl.idPlan`);
   return successResponse(res, 'Planes obtenidos correctamente', planes.map((p) => ({ ...p, alumnosActivos: Number(p.alumnosActivos) || 0 })));
 });
@@ -57,13 +58,14 @@ exports.insert = asyncHandler(async (req, res) => {
   const problema = problemaDelPlan({ nombre, descripcion, precio, cantidadCreditos });
   if (problema) return errorResponse(res, problema, 'INVALID_PLAN', 400);
 
-  if (tipo && !TIPOS_VALIDOS.includes(tipo)) {
-    return errorResponse(res, `El tipo debe ser uno de: ${TIPOS_VALIDOS.join(', ')}`, 'INVALID_TIPO', 400);
+  // El tipo de clase es obligatorio y tiene que ser uno activo: define qué clases puede reservar quien compre este plan
+  if (!(await tipoExiste(tipo, { soloActivos: true }))) {
+    return errorResponse(res, 'Elegí el tipo de clase del plan.', 'INVALID_TIPO', 400);
   }
 
   const [result] = await db.query(
     'INSERT INTO plan (nombre, descripcion, precio, cantidadCreditos, tipo) VALUES (?, ?, ?, ?, ?)',
-    [nombre, descripcion || null, precio, cantidadCreditos, tipo || TIPOS_VALIDOS[0]]
+    [nombre, descripcion || null, precio, cantidadCreditos, tipo]
   );
 
   return successResponse(res, 'Plan creado correctamente', {
@@ -81,19 +83,21 @@ exports.update = asyncHandler(async (req, res) => {
   const problema = problemaDelPlan({ nombre, descripcion, precio, cantidadCreditos });
   if (problema) return errorResponse(res, problema, 'INVALID_PLAN', 400);
 
-  if (tipo && !TIPOS_VALIDOS.includes(tipo)) {
-    return errorResponse(res, `El tipo debe ser uno de: ${TIPOS_VALIDOS.join(', ')}`, 'INVALID_TIPO', 400);
-  }
-
-  const [planExistente] = await db.query('SELECT idPlan FROM plan WHERE idPlan = ?', [id]);
+  const [planExistente] = await db.query('SELECT idPlan, tipo FROM plan WHERE idPlan = ?', [id]);
 
   if (planExistente.length === 0) {
     return errorResponse(res, 'Plan no encontrado', 'NOT_FOUND', 404);
   }
 
+  // Un plan puede conservar su tipo aunque ese tipo se haya desactivado; para cambiarlo hay que elegir uno activo
+  const cambiaTipo = tipo !== planExistente[0].tipo;
+  if (!(await tipoExiste(tipo, { soloActivos: cambiaTipo }))) {
+    return errorResponse(res, 'Elegí el tipo de clase del plan.', 'INVALID_TIPO', 400);
+  }
+
   await db.query(
     'UPDATE plan SET nombre = ?, descripcion = ?, precio = ?, cantidadCreditos = ?, tipo = ? WHERE idPlan = ?',
-    [nombre, descripcion || null, precio, cantidadCreditos, tipo || TIPOS_VALIDOS[0], id]
+    [nombre, descripcion || null, precio, cantidadCreditos, tipo, id]
   );
 
   return successResponse(res, 'Plan actualizado correctamente', {

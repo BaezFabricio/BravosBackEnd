@@ -98,9 +98,11 @@ exports.getAll = asyncHandler(async (req, res) => {
   const sql = `
     SELECT 
       u.idUsuario,
+      u.idPersona, -- solo para unir con planes y horarios; se quita antes de responder
       u.username,
       u.idPerfil,
       u.estado, -- Mantiene el estado del usuario base (Activo/Suspendido)
+      (u.contrasena IS NULL) AS sinAcceso, -- alumno cargado por el administrador, sin cuenta para entrar al sistema
       p.nombrecompleto,
       p.dni,
       p.correo,
@@ -125,7 +127,113 @@ exports.getAll = asyncHandler(async (req, res) => {
   `;
 
   const [rows] = await db.query(sql);
-  return successResponse(res, 'Usuarios obtenidos correctamente', rows);
+
+  // Para los filtros de la lista: planes con membresía vigente y horas de las clases que tiene reservadas.
+  // Son dos consultas aparte (y no JOIN en la de arriba) para no multiplicar las filas ni los créditos sumados.
+  const [planesRows] = await db.query(
+    `SELECT DISTINCT a.idPersona, pl.idPlan, pl.nombre, pl.tipo
+       FROM credito c
+       INNER JOIN alumno a ON c.idAlumno = a.idAlumno
+       INNER JOIN pago pg ON c.idPago = pg.idPago
+       INNER JOIN plan pl ON pg.idPlan = pl.idPlan
+      WHERE c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE()`
+  );
+  const [horasRows] = await db.query(
+    `SELECT DISTINCT a.idPersona, TIME_FORMAT(h.horaInicio, '%H:%i') AS hora
+       FROM reserva r
+       INNER JOIN alumno a ON r.idAlumno = a.idAlumno
+       INNER JOIN horarioclase h ON r.idHorario = h.idHorario
+      WHERE r.estado = 'proxima'
+        AND (r.fechaReserva > CURDATE() OR (r.fechaReserva = CURDATE() AND h.horaFin > CURTIME()))`
+  );
+  const planesPorPersona = new Map();
+  for (const f of planesRows) {
+    if (!planesPorPersona.has(f.idPersona)) planesPorPersona.set(f.idPersona, []);
+    planesPorPersona.get(f.idPersona).push({ idPlan: f.idPlan, nombre: f.nombre, tipo: f.tipo });
+  }
+  const horasPorPersona = new Map();
+  for (const f of horasRows) {
+    if (!horasPorPersona.has(f.idPersona)) horasPorPersona.set(f.idPersona, []);
+    horasPorPersona.get(f.idPersona).push(f.hora);
+  }
+
+  const usuarios = rows.map(({ idPersona, ...u }) => ({
+    ...u,
+    sinAcceso: Boolean(u.sinAcceso),
+    planes: planesPorPersona.get(idPersona) || [],
+    horas: (horasPorPersona.get(idPersona) || []).sort(),
+  }));
+  return successResponse(res, 'Usuarios obtenidos correctamente', usuarios);
+});
+
+/**
+ * POST /api/usuarios/sin-cuenta
+ * Alumno SIN CUENTA: una persona que va al gimnasio pero no usa el sistema (por ejemplo, gente mayor). El administrador
+ * la registra con sus datos personales y le gestiona membresías, pagos y asistencia como a cualquier alumno, pero no
+ * tiene contraseña ni puede entrar. Es un usuario con la contraseña vacía (NULL): el login y la recuperación de
+ * contraseña lo rechazan. El perfil es siempre "Alumno": nunca se acepta uno que mande el cliente.
+ */
+exports.createSinCuenta = asyncHandler(async (req, res) => {
+  const { nombrecompleto, dni, telefono, correo } = req.body || {};
+  const nombre = String(nombrecompleto ?? '').trim();
+  const correoLimpio = String(correo ?? '').trim();
+  const telefonoLimpio = String(telefono ?? '').trim();
+
+  if (!nombre) return errorResponse(res, 'Escribí el nombre y apellido.', 'MISSING_FIELDS', 400);
+  if (String(dni ?? '').trim() === '') return errorResponse(res, 'El DNI es obligatorio.', 'MISSING_FIELDS', 400);
+  const problema = problemaDatosUsuario({
+    nombre,
+    dni,
+    correo: correoLimpio === '' ? undefined : correoLimpio,
+    telefono: telefonoLimpio === '' ? undefined : telefonoLimpio,
+  });
+  if (problema) return errorResponse(res, problema, 'VALIDATION_ERROR', 400);
+
+  const [perfiles] = await db.query("SELECT idPerfil FROM perfil WHERE LOWER(nombrePerfil) = 'alumno' LIMIT 1");
+  if (perfiles.length === 0) {
+    return errorResponse(res, 'No existe el perfil "Alumno". Crealo en Perfiles y permisos.', 'PERFIL_NOT_FOUND', 409);
+  }
+
+  // El login busca por correo: dos personas con el mismo correo se confundirían
+  if (correoLimpio) {
+    const [repetido] = await db.query('SELECT 1 FROM persona WHERE correo = ? LIMIT 1', [correoLimpio]);
+    if (repetido.length > 0) return errorResponse(res, 'Ya hay una persona registrada con ese correo.', 'DUPLICATE', 409);
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [persona] = await connection.query(insertarPersona, [nombre, String(dni).trim(), correoLimpio || null, telefonoLimpio || null]);
+    // contrasena NULL = no puede iniciar sesión. El nombre de usuario es solo un identificador interno (es único).
+    const [usuario] = await connection.query(
+      `INSERT INTO usuario (idPersona, username, contrasena, idPerfil, estado, correo_verificado, debe_cambiar_contrasena)
+       VALUES (?, ?, NULL, ?, 'activo', 0, 0)`,
+      [persona.insertId, `sin-cuenta-${persona.insertId}`, perfiles[0].idPerfil]
+    );
+    await connection.commit();
+    return successResponse(res, 'Alumno registrado sin cuenta', {
+      idUsuario: usuario.insertId, nombrecompleto: nombre, dni: String(dni).trim(), correo: correoLimpio || null, telefono: telefonoLimpio || null, sinAcceso: true,
+    }, 201);
+  } catch (error) {
+    await connection.rollback();
+    if (error.code === 'ER_DUP_ENTRY') return errorResponse(res, 'Ya hay una persona registrada con ese DNI.', 'DUPLICATE', 409);
+    console.error('Error al registrar un alumno sin cuenta:', error);
+    return errorResponse(res, 'No se pudo registrar al alumno.', 'INTERNAL_SERVER_ERROR', 500);
+  } finally {
+    connection.release();
+  }
+});
+
+/**
+ * GET /api/usuarios/filtros
+ * Opciones para los filtros de la lista de usuarios: los planes del módulo Planes y las horas de las clases cargadas.
+ */
+exports.getOpcionesFiltros = asyncHandler(async (req, res) => {
+  const [planes] = await db.query('SELECT idPlan, nombre, tipo FROM plan ORDER BY nombre');
+  const [horas] = await db.query(
+    `SELECT DISTINCT TIME_FORMAT(horaInicio, '%H:%i') AS hora FROM horarioclase ORDER BY hora`
+  );
+  return successResponse(res, 'Opciones de filtros obtenidas correctamente', { planes, horas: horas.map((h) => h.hora) });
 });
 
 /**
@@ -149,6 +257,7 @@ exports.getById = asyncHandler(async (req, res) => {
       p.fecha_registro AS fechaRegistro, -- 🟢 Usa tu columna real con guión bajo
       perf.nombrePerfil AS perfil,       -- 🟢 Mapea directo a user.perfil
       u.idPerfil,                        -- para marcar el perfil actual al editar
+      (u.contrasena IS NULL) AS sinAcceso,
       ua.url AS avatarUrl
     FROM usuario u
     INNER JOIN persona p ON u.idPersona = p.idpersona -- 💡 idpersona va todo en minúsculas en tu DB

@@ -12,6 +12,18 @@ const { validateUpdateUser, handleValidationErrors } = require('../functions/val
 router.get('/', authenticateToken, requirePermission('usuarios', 'consulta'), usuariosController.getAll);
 
 /**
+ * POST /api/usuarios/sin-cuenta
+ * Registra un alumno sin cuenta (sin contraseña; solo lo gestiona el administrador)
+ */
+router.post('/sin-cuenta', authenticateToken, requirePermission('usuarios', 'alta'), usuariosController.createSinCuenta);
+
+/**
+ * GET /api/usuarios/filtros
+ * Opciones de los filtros de la lista: todos los planes y las horas de clase que existen (va antes de ':id')
+ */
+router.get('/filtros', authenticateToken, requirePermission('usuarios', 'consulta'), usuariosController.getOpcionesFiltros);
+
+/**
  * RUTAS DE ABONOS - Deben ir antes de la ruta con ':id' para evitar colisiones
  */
 router.get(

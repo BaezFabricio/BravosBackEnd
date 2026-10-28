@@ -29,7 +29,8 @@ exports.registro = asyncHandler(async (req, res) => {
   // 1. 🛡️ VALIDACIONES ESTRICTAS DE DUPLICADOS CON RESPUESTAS ESPECÍFICAS
   const [emailExists] = await db.query(verificarCorreoExistente, [correo]);
   if (emailExists && emailExists[0]?.count > 0) {
-    return errorResponse(res, 'El correo electrónico ya se encuentra registrado.', 'DUPLICATE_EMAIL', 409);
+    // Un solo mensaje para cualquier correo repetido: no se revela si la cuenta está pendiente, la cargó el gimnasio o ya está activa
+    return errorResponse(res, 'Ese correo ya está en uso.', 'DUPLICATE_EMAIL', 409);
   }
 
   const [dniExists] = await db.query(verificarDniExistente, [dni]);
@@ -132,6 +133,11 @@ exports.login = asyncHandler(async (req, res) => {
   }
 
   const usuario = usuarios[0];
+
+  // Un alumno sin cuenta (cargado por el administrador) no tiene contraseña: no puede entrar. Misma respuesta que una clave mala.
+  if (!usuario.contrasena) {
+    return errorResponse(res, 'Correo o contraseña inválidos', 'INVALID_CREDENTIALS', 401);
+  }
 
   if (usuario.correo_verificado === 0) {
     return errorResponse(
@@ -330,18 +336,44 @@ exports.me = asyncHandler(async (req, res) => {
 exports.verificarCuenta = asyncHandler(async (req, res) => {
   const { token } = req.params;
 
-  const [usuarios] = await db.query('SELECT idUsuario FROM usuario WHERE token_verificacion = ?', [token]);
+  const [usuarios] = await db.query(
+    `SELECT u.idUsuario, u.estado, u.idPerfil, p.nombrecompleto
+     FROM usuario u INNER JOIN persona p ON p.idPersona = u.idPersona
+     WHERE u.token_verificacion = ?`,
+    [token]
+  );
 
   if (usuarios.length === 0) {
     return errorResponse(res, 'El enlace de verificación es inválido o ya fue utilizado.', 'INVALID_TOKEN', 400);
   }
 
-  const idUsuario = usuarios[0].idUsuario;
+  const { idUsuario, estado, idPerfil, nombrecompleto } = usuarios[0];
 
   await db.query(
     'UPDATE usuario SET correo_verificado = 1, token_verificacion = NULL WHERE idUsuario = ?', 
     [idUsuario]
   );
+
+  // Alta por cuenta propia: se registra como "pendiente" y sin perfil. Al confirmar que el correo es suyo se activa sola, con el
+  // perfil Alumno, así no queda esperando que el administrador la habilite a mano (antes podía iniciar sesión pero no ver nada).
+  // Solo si sigue pendiente y sin perfil: nunca se toca una cuenta desactivada ni una que ya tiene perfil.
+  if (estado === 'pendiente' && idPerfil === null) {
+    const [perfiles] = await db.query("SELECT idPerfil FROM perfil WHERE LOWER(nombrePerfil) = 'alumno' LIMIT 1");
+    if (perfiles.length > 0) {
+      const [r] = await db.query(
+        "UPDATE usuario SET estado = 'activo', idPerfil = ? WHERE idUsuario = ? AND estado = 'pendiente' AND idPerfil IS NULL",
+        [perfiles[0].idPerfil, idUsuario]
+      );
+      if (r.affectedRows === 1) {
+        crearNotificacionAdmins('sistema',
+          'Cuenta activada',
+          `${nombrecompleto} verificó su correo y su cuenta se activó como alumno.`,
+          '/admin/usuarios',
+          { propio: true, cuerpo: `${nombrecompleto} activó su cuenta` }
+        );
+      }
+    }
+  }
 
   return successResponse(res, '¡Cuenta verificada con éxito! Ya podés iniciar sesión.', null);
 });
@@ -351,56 +383,70 @@ exports.verificarCuenta = asyncHandler(async (req, res) => {
  * ✨ PERMITE ACTUALIZAR EL CORREO SI EL USUARIO SE EQUIVOCÓ
  */
 exports.reenviarVerificacion = asyncHandler(async (req, res) => {
-  const { correo, nuevoCorreo, idUsuario } = req.body;
+  const { correo, nuevoCorreo, idUsuario, password } = req.body || {};
+  const norm = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : '');
+  const RESPUESTA = 'Si hay una cuenta pendiente de activar con ese correo, te enviamos el enlace. Revisá también la carpeta de spam.';
 
-  const correoNormalizado = typeof correo === 'string' ? correo.trim().toLowerCase() : '';
-  const nuevoCorreoNormalizado = typeof nuevoCorreo === 'string' ? nuevoCorreo.trim().toLowerCase() : '';
+  /*
+   * Esta ruta es pública (la usa quien recién se registró y todavía no puede iniciar sesión), así que NO se puede confiar en
+   * lo que llegue. Reglas:
+   *  - Solo se toca a cuentas pendientes de activar (correo sin verificar). Una cuenta ya activa no se modifica nunca:
+   *    antes cualquiera podía cambiarle el correo a un administrador con solo adivinar su número, y después pedir
+   *    "olvidé mi contraseña" para quedarse con la cuenta.
+   *  - El enlace siempre va al correo que la cuenta ya tiene registrado, nunca a uno que mande el pedido.
+   *  - Cambiar el correo exige la contraseña de esa cuenta (la que se acaba de elegir al registrarse).
+   *  - Se responde lo mismo exista o no la cuenta, para no revelar qué correos están registrados.
+   */
 
-  let usuarioId = idUsuario;
-  let correoDestino = nuevoCorreoNormalizado || correoNormalizado;
-
-  if (!correoDestino) {
-    return errorResponse(res, 'El correo es requerido para reenviar la verificación.', 'MISSING_EMAIL', 400);
-  }
-
-  if (nuevoCorreoNormalizado) {
-    const [emailExists] = await db.query(
-      'SELECT p.idPersona FROM persona p JOIN usuario u ON p.idPersona = u.idPersona WHERE LOWER(TRIM(p.correo)) = LOWER(TRIM(?)) AND u.idUsuario != ?', 
-      [nuevoCorreoNormalizado, usuarioId]
+  // A) Cambiar el correo de una cuenta recién registrada (se equivocó al escribirlo)
+  if (nuevoCorreo !== undefined && nuevoCorreo !== null && nuevoCorreo !== '') {
+    const nuevo = norm(nuevoCorreo);
+    if (!/^[^s@]+@[^s@]+.[^s@]+$/.test(nuevo) || nuevo.length > 100) {
+      return errorResponse(res, 'El correo nuevo no es válido.', 'INVALID_EMAIL', 400);
+    }
+    if (!idUsuario || typeof password !== 'string' || !password) {
+      return errorResponse(res, 'Para cambiar el correo hace falta tu contraseña.', 'MISSING_FIELDS', 400);
+    }
+    const [cuentas] = await db.query(
+      `SELECT u.idUsuario, u.contrasena, u.correo_verificado, p.idPersona, p.nombrecompleto
+       FROM usuario u INNER JOIN persona p ON p.idPersona = u.idPersona
+       WHERE u.idUsuario = ?`,
+      [Number(idUsuario) || 0]
     );
-    if (emailExists && emailExists.length > 0) {
+    const cuenta = cuentas[0];
+    const autorizado = cuenta && Number(cuenta.correo_verificado) === 0 && cuenta.contrasena && (await comparePassword(password, cuenta.contrasena));
+    if (!autorizado) {
+      return errorResponse(res, 'No se pudo cambiar el correo. Revisá la contraseña o iniciá sesión si tu cuenta ya está activa.', 'FORBIDDEN', 403);
+    }
+    const [repetido] = await db.query('SELECT 1 FROM persona WHERE LOWER(TRIM(correo)) = ? AND idPersona != ? LIMIT 1', [nuevo, cuenta.idPersona]);
+    if (repetido.length > 0) {
       return errorResponse(res, 'El nuevo correo electrónico ya está siendo usado por otra cuenta.', 'DUPLICATE_EMAIL', 409);
     }
-
-    await db.query(
-      'UPDATE persona p JOIN usuario u ON p.idPersona = u.idPersona SET p.correo = ? WHERE u.idUsuario = ?', 
-      [nuevoCorreoNormalizado, usuarioId]
-    );
+    const token = crypto.randomBytes(32).toString('hex');
+    await db.query('UPDATE persona SET correo = ? WHERE idPersona = ?', [nuevo, cuenta.idPersona]);
+    await db.query('UPDATE usuario SET token_verificacion = ? WHERE idUsuario = ?', [token, cuenta.idUsuario]);
+    await sendVerificationEmail(nuevo, cuenta.nombrecompleto, token);
+    return successResponse(res, 'Cambiamos tu correo y te enviamos un nuevo enlace de verificación.', { correoActualizado: nuevo }, 200);
   }
 
-  const queryBuscar = usuarioId
-    ? 'SELECT u.idUsuario, p.nombrecompleto, u.correo_verificado, p.correo FROM usuario u JOIN persona p ON u.idPersona = p.idPersona WHERE u.idUsuario = ?'
-    : 'SELECT u.idUsuario, p.nombrecompleto, u.correo_verificado, p.correo FROM usuario u JOIN persona p ON u.idPersona = p.idPersona WHERE LOWER(TRIM(p.correo)) = LOWER(TRIM(?)) OR LOWER(TRIM(u.username)) = LOWER(TRIM(?))';
-
-  const parametrosBuscar = usuarioId ? [usuarioId] : [correoNormalizado, correoNormalizado];
-  const [usuarios] = await db.query(queryBuscar, parametrosBuscar);
-
-  if (!usuarios || usuarios.length === 0) {
-    return errorResponse(res, 'No se encontró ninguna cuenta asociada para enviar la verificación.', 'USER_NOT_FOUND', 404);
+  // B) Reenviar el enlace al correo que la cuenta ya tiene
+  const correoNormalizado = norm(correo);
+  if (!correoNormalizado) {
+    return errorResponse(res, 'El correo es requerido para reenviar la verificación.', 'MISSING_EMAIL', 400);
   }
-
-  const usuario = usuarios[0];
-
-  const nuevoToken = crypto.randomBytes(32).toString('hex');
-
-  await db.query(
-    'UPDATE usuario SET token_verificacion = ? WHERE idUsuario = ?',
-    [nuevoToken, usuario.idUsuario]
+  const [pendientes] = await db.query(
+    `SELECT u.idUsuario, p.nombrecompleto, p.correo
+     FROM usuario u INNER JOIN persona p ON p.idPersona = u.idPersona
+     WHERE LOWER(TRIM(p.correo)) = ? AND u.correo_verificado = 0 AND u.contrasena IS NOT NULL
+     LIMIT 1`,
+    [correoNormalizado]
   );
-
-  await sendVerificationEmail(correoDestino, usuario.nombrecompleto, nuevoToken);
-
-  return successResponse(res, 'Se ha enviado el código de verificación de forma exitosa.', { correoActualizado: correoDestino }, 200);
+  if (pendientes.length > 0) {
+    const token = crypto.randomBytes(32).toString('hex');
+    await db.query('UPDATE usuario SET token_verificacion = ? WHERE idUsuario = ?', [token, pendientes[0].idUsuario]);
+    await sendVerificationEmail(pendientes[0].correo, pendientes[0].nombrecompleto, token); // siempre al correo registrado
+  }
+  return successResponse(res, RESPUESTA, null, 200);
 });
 
 module.exports = exports;
@@ -409,7 +455,8 @@ module.exports = exports;
  * POST /api/auth/recuperar-contrasena  (pública a propósito)
  * Recuperación con enlace de un solo uso (ver functions/recuperacion.js). Acciones:
  *  - send_link { email }: si la cuenta existe, envía el enlace. Siempre responde lo mismo, para que
- *    nadie pueda averiguar qué correos están registrados.
+ *    nadie pueda averiguar qué correos están registrados. Sirve también para quien el gimnasio cargó "sin cuenta":
+ *    solo la persona dueña de ese correo recibe el enlace, y al crear su contraseña activa su cuenta con todo lo que ya tenía.
  *  - check_token { token }: dice si el enlace sigue sirviendo (para mostrar el formulario o un aviso).
  *  - reset_password { token, password }: cambia la contraseña y anula el enlace.
  */
@@ -464,6 +511,11 @@ exports.recuperarContrasena = asyncHandler(async (req, res) => {
         await conexion.rollback();
         return errorResponse(res, RESPUESTA_ENLACE_INVALIDO[0], RESPUESTA_ENLACE_INVALIDO[1], 400);
       }
+      // ¿Era una persona cargada sin cuenta por el gimnasio? Si es así, al crear su contraseña se le avisa al administrador
+      const [[previa]] = await conexion.query(
+        'SELECT (u.contrasena IS NULL) AS eraSinCuenta, p.nombrecompleto FROM usuario u INNER JOIN persona p ON p.idPersona = u.idPersona WHERE u.idUsuario = ?',
+        [vigente.idUsuario]
+      );
       // El enlace llegó al correo: eso también confirma que el correo es suyo
       // También sube la versión de sesión: se cierran todas las sesiones abiertas con la contraseña vieja
       await conexion.query(
@@ -472,6 +524,13 @@ exports.recuperarContrasena = asyncHandler(async (req, res) => {
       );
       await conexion.commit();
       versionSesion.olvidarVersion(vigente.idUsuario);
+      if (previa && Number(previa.eraSinCuenta) === 1) {
+        crearNotificacionAdmins('sistema',
+          'Un alumno activó su cuenta',
+          `${previa.nombrecompleto} creó su contraseña y ya puede entrar al sistema. Sus membresías y pagos se mantienen.`,
+          '/admin/usuarios'
+        );
+      }
     } catch (error) {
       await conexion.rollback();
       throw error;

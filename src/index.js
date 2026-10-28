@@ -14,6 +14,8 @@ const { crearTablasLegales } = require('./functions/consentimiento');
 const { crearTablaRecuperacion } = require('./functions/recuperacion');
 const { crearTablaPush } = require('./functions/push.service');
 const { crearTablaGuias } = require('./functions/guias.service');
+const { crearTablaTurnosHorarios } = require('./functions/turnosHorarios');
+const { crearTablaTiposClase } = require('./functions/tiposClase');
 const { iniciarCronPublicacion } = require('./functions/publicacionCron');
 const { iniciarCronMembresias } = require('./functions/membresiasCron');
 
@@ -45,6 +47,8 @@ async function startServer() {
       await crearTablaNotificacion();
       await crearTablaPush(); // dispositivos con notificaciones push activadas
       await crearTablaGuias(); // qué guías de bienvenida vio cada persona
+      await crearTablaTiposClase(); // tipos de clase del box (CrossFit, Planificación Atleta…): unen planes, clases y reservas
+      await crearTablaTurnosHorarios(); // horarios de los turnos del box (lista para elegir al crear una clase)
       await crearTablasLegales();
       await crearTablaRecuperacion();
       // Migraciones independientes — fallan silenciosamente si la columna ya existe

@@ -1,4 +1,5 @@
-const { limpiarArchivoDeImagen } = require('../utils/imagenes');
+const { tipoDeImagen, limpiarMetadatos } = require('../utils/imagenes');
+const { esPdf, limpiarPdf } = require('../utils/pdf');
 const db = require('../config/db');
 const path = require('path');
 const fs = require('fs');
@@ -9,6 +10,35 @@ const { acepto, registrarConsentimiento } = require('../functions/consentimiento
 const TIPOS_VALIDOS = ['comprobante_transferencia', 'certificado_medico', 'declaracion_jurada'];
 // Contienen datos de salud: son datos sensibles (Ley 25.326, art. 7) y piden consentimiento expreso.
 const TIPOS_SALUD = ['certificado_medico', 'declaracion_jurada'];
+
+/**
+ * Las fotos y los PDF de documentos (comprobantes, estudios, certificados) traen datos ocultos: ubicación, teléfono, autor,
+ * programa, fechas. Al recibirlos se reconoce el tipo real por los bytes (no por lo que dice el cliente: así nadie
+ * puede saltarse la limpieza poniéndole otro tipo) y se reescriben sin esos datos. Si no es una foto JPG, PNG o WebP,
+ * ni un PDF válido y sin contraseña, se rechaza. El archivo guardado lleva la extensión que le corresponde.
+ */
+async function limpiarDocumentoSubido(file) {
+  const bytes = fs.readFileSync(file.path);
+  const tipo = tipoDeImagen(bytes);
+  let limpio;
+  let ext;
+  if (tipo === 'jpeg' || tipo === 'png' || tipo === 'webp') {
+    limpio = limpiarMetadatos(bytes);
+    ext = tipo === 'jpeg' ? '.jpg' : `.${tipo}`;
+  } else if (esPdf(bytes)) {
+    limpio = await limpiarPdf(bytes);
+    ext = '.pdf';
+  } else {
+    throw new Error('El archivo tiene que ser una foto JPG, PNG o WebP, o un PDF.');
+  }
+  fs.writeFileSync(file.path, limpio);
+  const rutaNueva = path.join(path.dirname(file.path), path.basename(file.path, path.extname(file.path)) + ext);
+  if (rutaNueva !== file.path) {
+    fs.renameSync(file.path, rutaNueva);
+    file.path = rutaNueva;
+    file.filename = path.basename(rutaNueva);
+  }
+}
 
 // multer ya guardó el archivo antes de llegar acá: si se rechaza el pedido, no tiene que quedar en el disco.
 function descartarArchivo(file) {
@@ -23,14 +53,12 @@ async function subirDocumento(req, res) {
   try {
     if (!req.file) return res.status(400).json({ message: 'No se recibió ningún archivo.' });
 
-    // Las fotos de documentos (comprobantes, estudios) pueden traer ubicación y datos del teléfono: se limpian al recibirlas.
-    if (req.file.mimetype && req.file.mimetype.startsWith('image/')) {
-      try {
-        limpiarArchivoDeImagen(req.file.path);
-      } catch {
-        descartarArchivo(req.file);
-        return res.status(400).json({ message: 'La imagen no es válida. Probá con una foto JPG, PNG o WebP.' });
-      }
+    // Se limpian los datos ocultos de la foto o el PDF antes de guardarlos (ver limpiarDocumentoSubido).
+    try {
+      await limpiarDocumentoSubido(req.file);
+    } catch (error) {
+      descartarArchivo(req.file);
+      return res.status(400).json({ message: error.message || 'No se pudo procesar el archivo. Probá con una foto JPG, PNG o WebP, o un PDF.' });
     }
 
     const { tipo, consienteDatosSalud } = req.body;
@@ -58,7 +86,7 @@ async function subirDocumento(req, res) {
     }
 
     const urlArchivo = `/uploads/documentos/${req.file.filename}`;
-    const nombreArchivo = req.file.originalname;
+    const nombreArchivo = path.basename(String(req.file.originalname || 'documento')).slice(0, 120);
 
     const [result] = await db.query(
       `INSERT INTO documento_alumno (idPersona, tipo, nombreArchivo, urlArchivo) VALUES (?, ?, ?, ?)`,

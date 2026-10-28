@@ -23,11 +23,14 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     return errorResponse(res, 'La fecha de la reserva no es válida.', 'INVALID_DATE', 400);
   }
 
+  // Puede reservar quien tiene el permiso de crear reservas: el del alumno (alumno_reservas) o el de gestión (reservas).
+  // Antes se miraba el módulo 'clases', que el perfil Alumno puede no tener: una persona con perfil y membresía correctos
+  // recibía "No tenés permisos de alumno" sin motivo. Es el mismo permiso que ya exige la ruta (reservas.routes.js).
   const sqlValidarPermiso = `
     SELECT COUNT(*) as puedeReservar
     FROM perfilpermiso pp
     INNER JOIN permiso p ON pp.idPermiso = p.idPermiso
-    WHERE pp.idPerfil = ? AND LOWER(p.modulo) IN ('clases', 'reservas')
+    WHERE pp.idPerfil = ? AND LOWER(p.modulo) IN ('alumno_reservas', 'reservas') AND LOWER(p.accion) = 'alta'
   `;
   const [permisoCheck] = await db.query(sqlValidarPermiso, [idPerfilReal]);
   
@@ -42,7 +45,7 @@ exports.crearReserva = asyncHandler(async (req, res) => {
   try {
     // Buscar la clase y calcular cupos disponibles dinámicamente para la fecha solicitada
     const sqlBuscarClase = `
-      SELECT c.idClase, c.cupoMaximo, c.nombreClase, c.estado, c.idPlan,
+      SELECT c.idClase, c.cupoMaximo, c.nombreClase, c.estado, c.tipoPlan,
         h.dia AS diaHorario, DATE_FORMAT(h.fechaEspecifica, '%Y-%m-%d') AS fechaEspecifica,
         TIMESTAMPDIFF(MINUTE, NOW(), TIMESTAMP(?, h.horaInicio)) AS minutosParaInicio,
         (
@@ -106,18 +109,20 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     }
     const idAlumno = alumnoRows[0].idAlumno;
 
-    // Buscar crédito activo del alumno; si la clase tiene idPlan, el crédito debe ser del mismo plan
+    // Buscar crédito activo del alumno: sirve el de cualquier plan que sea del mismo tipo que la clase (CrossFit, Planificación Atleta…).
+    // Qué plan compró ("x12", "x3"…) no importa: manda el tipo, nunca el nombre del plan.
     let sqlBuscarCredito, creditoParams;
-    if (clase.idPlan) {
+    if (clase.tipoPlan) {
       sqlBuscarCredito = `
         SELECT c.idCredito, c.creditosCisponibles, c.creditosUtilizados
         FROM credito c
         INNER JOIN pago p ON c.idPago = p.idPago
-        WHERE c.idAlumno = ? AND p.idPlan = ? AND c.estado = 'ACTIVO'
+        INNER JOIN plan pl ON pl.idPlan = p.idPlan
+        WHERE c.idAlumno = ? AND pl.tipo = ? AND c.estado = 'ACTIVO'
           AND c.creditosCisponibles > 0 AND c.fechaVencimiento >= CURDATE() AND c.fechaVencimiento >= ?
         ORDER BY c.fechaVencimiento ASC LIMIT 1 FOR UPDATE
       `;
-      creditoParams = [idAlumno, clase.idPlan, fechaReserva];
+      creditoParams = [idAlumno, clase.tipoPlan, fechaReserva];
     } else {
       sqlBuscarCredito = `
         SELECT idCredito, creditosCisponibles, creditosUtilizados
@@ -132,8 +137,11 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     if (creditoRows.length === 0) {
       await connection.rollback();
       connection.release();
-      const msg = clase.idPlan
-        ? 'No tenés créditos disponibles para este tipo de plan. Verificá tu membresía activa.'
+      const [[tipoDeClase]] = clase.tipoPlan
+        ? await connection.query('SELECT nombre FROM tipo_clase WHERE codigo = ?', [clase.tipoPlan])
+        : [[null]];
+      const msg = clase.tipoPlan
+        ? `Esta clase es de ${tipoDeClase?.nombre || 'otro tipo'} y no tenés créditos vigentes de ese tipo. Verificá tu membresía activa.`
         : 'No poseés créditos disponibles activos para agendar clases.';
       return errorResponse(res, msg, 'SIN_CREDITOS', 400);
     }
