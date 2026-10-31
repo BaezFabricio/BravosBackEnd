@@ -114,21 +114,23 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     let sqlBuscarCredito, creditoParams;
     if (clase.tipoPlan) {
       sqlBuscarCredito = `
-        SELECT c.idCredito, c.creditosCisponibles, c.creditosUtilizados
+        SELECT c.idCredito, c.creditosCisponibles, c.creditosUtilizados, pl.creditosPorSemana AS porSemana
         FROM credito c
         INNER JOIN pago p ON c.idPago = p.idPago
         INNER JOIN plan pl ON pl.idPlan = p.idPlan
         WHERE c.idAlumno = ? AND pl.tipo = ? AND c.estado = 'ACTIVO'
           AND c.creditosCisponibles > 0 AND c.fechaVencimiento >= CURDATE() AND c.fechaVencimiento >= ?
-        ORDER BY c.fechaVencimiento ASC LIMIT 1 FOR UPDATE
+        ORDER BY c.fechaVencimiento ASC FOR UPDATE
       `;
       creditoParams = [idAlumno, clase.tipoPlan, fechaReserva];
     } else {
       sqlBuscarCredito = `
-        SELECT idCredito, creditosCisponibles, creditosUtilizados
-        FROM credito
-        WHERE idAlumno = ? AND estado = 'ACTIVO' AND creditosCisponibles > 0 AND fechaVencimiento >= CURDATE() AND fechaVencimiento >= ?
-        ORDER BY fechaVencimiento ASC LIMIT 1 FOR UPDATE
+        SELECT c.idCredito, c.creditosCisponibles, c.creditosUtilizados, pl.creditosPorSemana AS porSemana
+        FROM credito c
+        INNER JOIN pago p ON c.idPago = p.idPago
+        INNER JOIN plan pl ON pl.idPlan = p.idPlan
+        WHERE c.idAlumno = ? AND c.estado = 'ACTIVO' AND c.creditosCisponibles > 0 AND c.fechaVencimiento >= CURDATE() AND c.fechaVencimiento >= ?
+        ORDER BY c.fechaVencimiento ASC FOR UPDATE
       `;
       creditoParams = [idAlumno, fechaReserva];
     }
@@ -146,7 +148,27 @@ exports.crearReserva = asyncHandler(async (req, res) => {
       return errorResponse(res, msg, 'SIN_CREDITOS', 400);
     }
 
-    const creditoActivo = creditoRows[0];
+    // Plan con "créditos por semana": solo se puede reservar hasta ese número en la semana de la clase (cada reserva cuenta, aunque después se cancele).
+    // Si el alumno tiene más de un crédito vigente, se usa el primero que todavía tenga lugar esa semana.
+    let creditoElegido = null;
+    let semanaCompleta = null;
+    for (const cr of creditoRows) {
+      if (!cr.porSemana) { creditoElegido = cr; break; }
+      const [[{ usadas }]] = await connection.query(
+        'SELECT COUNT(*) AS usadas FROM reserva WHERE idCredito = ? AND YEARWEEK(fechaReserva, 1) = YEARWEEK(?, 1)',
+        [cr.idCredito, fechaReserva]
+      );
+      if (Number(usadas) < Number(cr.porSemana)) { creditoElegido = cr; break; }
+      semanaCompleta = cr;
+    }
+
+    if (!creditoElegido) {
+      await connection.rollback();
+      connection.release();
+      return errorResponse(res, `Ya usaste los ${semanaCompleta.porSemana} créditos de esa semana. Se renuevan el lunes.`, 'SEMANA_COMPLETA', 400);
+    }
+
+    const creditoActivo = creditoElegido;
 
     // Verificar duplicados de reserva
     const [yaReservado] = await connection.query(
@@ -456,6 +478,21 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
       devuelveCredito = false; 
     }
 
+    // Plan con créditos por semana: el crédito ya cuenta para esa semana y cancelar no lo devuelve (aunque cancele con tiempo)
+    let esSemanal = false;
+    if (reserva.idCredito) {
+      const [[semanal]] = await connection.query(
+        `SELECT pl.creditosPorSemana AS porSemana
+           FROM credito c
+           INNER JOIN pago p ON p.idPago = c.idPago
+           INNER JOIN plan pl ON pl.idPlan = p.idPlan
+          WHERE c.idCredito = ?`,
+        [reserva.idCredito]
+      );
+      if (semanal && semanal.porSemana) { esSemanal = true; devuelveCredito = false; }
+    }
+
+
     // Actualizar estado de la reserva
     await connection.query("UPDATE reserva SET estado = 'cancelada' WHERE idReserva = ?", [id]);
 
@@ -475,7 +512,9 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
 
     crearNotificacion(idUsuarioReal, 'reserva',
       'Reserva cancelada',
-      devuelveCredito
+      esSemanal
+        ? 'Tu reserva fue cancelada. En tu plan los créditos no se devuelven al cancelar: cuenta para los de la semana.'
+        : devuelveCredito
         ? 'Tu reserva fue cancelada y el crédito fue devuelto a tu cuenta.'
         : 'Tu reserva fue cancelada fuera de término. El crédito no fue reintegrado (menos de 2hs de anticipación).',
       '/alumno/reservas'
@@ -484,7 +523,10 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
     return successResponse(res, 'Reserva cancelada correctamente.', {
       idReserva: Number(id),
       devuelveCredito,
-      mensaje: devuelveCredito
+      esSemanal,
+      mensaje: esSemanal
+        ? "Reserva cancelada. En tu plan el crédito no se devuelve."
+        : devuelveCredito
         ? "Tu crédito fue devuelto automáticamente."
         : "Cancelación fuera de término. El crédito no será reintegrado."
     });
@@ -519,7 +561,8 @@ exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
       c.creditosCisponibles,
       c.creditosUtilizados,
       c.fechaVencimiento,
-      pl.nombre AS nombrePlan
+      pl.nombre AS nombrePlan,
+      pl.creditosPorSemana AS porSemana
     FROM credito c
     INNER JOIN alumno a ON c.idAlumno = a.idAlumno
     INNER JOIN usuario u ON a.idPersona = u.idPersona
@@ -550,6 +593,18 @@ exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
     nombrePlan: 'Sin plan activo'
   };
 
+  // Si algún plan tiene "créditos por semana": cuántos se pueden usar por semana y cuántos lleva usados esta semana
+  const semanales = abonoRows.filter((r) => r.porSemana);
+  let semana = null;
+  if (semanales.length > 0) {
+    const ids = semanales.map((r) => r.idCredito);
+    const [[{ usadas }]] = await db.query(
+      `SELECT COUNT(*) AS usadas FROM reserva WHERE idCredito IN (${ids.map(() => '?').join(',')}) AND YEARWEEK(fechaReserva, 1) = YEARWEEK(CURDATE(), 1)`,
+      ids
+    );
+    semana = { porSemana: semanales.reduce((a, r) => a + Number(r.porSemana), 0), usadas: Number(usadas) };
+  }
+
   // 2. Obtener el historial integrado de movimientos mediante UNION (Reservas vs Renovaciones)
   const sqlMovimientos = `
     SELECT * FROM (
@@ -557,6 +612,7 @@ exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
         r.fechaReserva AS fecha,
         CONCAT('Reserva ', c.nombreClase, ' ', h.horaInicio) AS descripcion,
         CASE
+          WHEN r.estado = 'cancelada' AND plr.creditosPorSemana IS NOT NULL THEN 'Cancelada (sin devolución)'
           WHEN r.estado = 'cancelada' AND r.idCredito IS NOT NULL THEN 'Cancelada (Devuelto)'
           WHEN r.estado = 'cancelada' THEN 'Cancelada (Fuera de término)'
           WHEN r.estado = 'proxima' AND r.fechaReserva >= CURDATE() THEN 'Próxima'
@@ -564,6 +620,7 @@ exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
           ELSE 'Asistió'
         END AS estado,
         CASE
+          WHEN r.estado = 'cancelada' AND plr.creditosPorSemana IS NOT NULL THEN '-1'
           WHEN r.estado = 'cancelada' AND r.idCredito IS NOT NULL THEN '+1'
           WHEN r.estado = 'cancelada' THEN '0'
           ELSE '-1'
@@ -574,6 +631,9 @@ exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
       INNER JOIN horarioclase h ON r.idHorario = h.idHorario
       INNER JOIN diaclase c ON h.idClase = c.idClase
       LEFT JOIN asistencia asi ON asi.idReserva = r.idReserva
+      LEFT JOIN credito crd ON crd.idCredito = r.idCredito
+      LEFT JOIN pago pg ON pg.idPago = crd.idPago
+      LEFT JOIN plan plr ON plr.idPlan = pg.idPlan
       WHERE u.idUsuario = ?
 
       UNION ALL
@@ -590,14 +650,27 @@ exports.obtenerMisCreditosYMovimientos = asyncHandler(async (req, res) => {
       INNER JOIN pago p ON c.idPago = p.idPago
       INNER JOIN plan pl ON p.idPlan = pl.idPlan
       WHERE u.idUsuario = ?
+
+      UNION ALL
+
+      SELECT
+        d.fecha AS fecha,
+        'Créditos sin usar de la semana' AS descripcion,
+        'Vencido' AS estado,
+        CONCAT('-', d.cantidad) AS creditos
+      FROM credito_descuento d
+      INNER JOIN credito c ON c.idCredito = d.idCredito
+      INNER JOIN alumno a ON c.idAlumno = a.idAlumno
+      INNER JOIN usuario u ON a.idPersona = u.idPersona
+      WHERE u.idUsuario = ?
     ) AS historial
     ORDER BY fecha DESC
   `;
 
-  const [movimientos] = await db.query(sqlMovimientos, [idUsuarioLogueado, idUsuarioLogueado]);
+  const [movimientos] = await db.query(sqlMovimientos, [idUsuarioLogueado, idUsuarioLogueado, idUsuarioLogueado]);
 
   return successResponse(res, 'Métricas e historial cargados correctamente', {
-    abono: abonoActivo,
+    abono: { ...abonoActivo, semana },
     movimientos: movimientos
   });
 });

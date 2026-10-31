@@ -11,7 +11,7 @@ exports.getAll = asyncHandler(async (req, res) => {
   // Además de los datos del plan, cuántos alumnos lo tienen activo hoy (crédito activo y sin vencer).
   // Solo cantidades, nunca quiénes: esta ruta exige el permiso de Membresías.
   const [planes] = await db.query(`
-    SELECT pl.idPlan, pl.nombre, pl.descripcion, pl.precio, pl.cantidadCreditos, pl.tipo, tc.nombre AS nombreTipo,
+    SELECT pl.idPlan, pl.nombre, pl.descripcion, pl.precio, pl.cantidadCreditos, pl.creditosPorSemana, pl.tipo, tc.nombre AS nombreTipo,
            (SELECT COUNT(DISTINCT c.idAlumno)
               FROM credito c
               INNER JOIN pago p ON c.idPago = p.idPago
@@ -52,11 +52,22 @@ function problemaDelPlan({ nombre, descripcion, precio, cantidadCreditos }) {
   return null;
 }
 
+// "Créditos por semana" es opcional: vacío = el plan funciona como siempre (sin tope semanal)
+function leerPorSemana(valor, cantidadCreditos) {
+  if (valor === undefined || valor === null || valor === '') return { valor: null };
+  const n = Number(valor);
+  if (!Number.isInteger(n) || n < 1 || n > 7) return { problema: 'Los créditos por semana tienen que ser un número entero entre 1 y 7.' };
+  if (n > Number(cantidadCreditos)) return { problema: 'Los créditos por semana no pueden superar los créditos del plan.' };
+  return { valor: n };
+}
+
 exports.insert = asyncHandler(async (req, res) => {
-  const { nombre, descripcion, precio, cantidadCreditos, tipo } = req.body;
+  const { nombre, descripcion, precio, cantidadCreditos, creditosPorSemana, tipo } = req.body;
 
   const problema = problemaDelPlan({ nombre, descripcion, precio, cantidadCreditos });
   if (problema) return errorResponse(res, problema, 'INVALID_PLAN', 400);
+  const semanal = leerPorSemana(creditosPorSemana, cantidadCreditos);
+  if (semanal.problema) return errorResponse(res, semanal.problema, 'INVALID_PLAN', 400);
 
   // El tipo de clase es obligatorio y tiene que ser uno activo: define qué clases puede reservar quien compre este plan
   if (!(await tipoExiste(tipo, { soloActivos: true }))) {
@@ -64,12 +75,12 @@ exports.insert = asyncHandler(async (req, res) => {
   }
 
   const [result] = await db.query(
-    'INSERT INTO plan (nombre, descripcion, precio, cantidadCreditos, tipo) VALUES (?, ?, ?, ?, ?)',
-    [nombre, descripcion || null, precio, cantidadCreditos, tipo]
+    'INSERT INTO plan (nombre, descripcion, precio, cantidadCreditos, creditosPorSemana, tipo) VALUES (?, ?, ?, ?, ?, ?)',
+    [nombre, descripcion || null, precio, cantidadCreditos, semanal.valor, tipo]
   );
 
   return successResponse(res, 'Plan creado correctamente', {
-    idPlan: result.insertId, nombre, descripcion, precio, cantidadCreditos, tipo
+    idPlan: result.insertId, nombre, descripcion, precio, cantidadCreditos, creditosPorSemana: semanal.valor, tipo
   }, 201);
 });
 
@@ -78,10 +89,12 @@ exports.insert = asyncHandler(async (req, res) => {
  */
 exports.update = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { nombre, descripcion, precio, cantidadCreditos, tipo } = req.body;
+  const { nombre, descripcion, precio, cantidadCreditos, creditosPorSemana, tipo } = req.body;
 
   const problema = problemaDelPlan({ nombre, descripcion, precio, cantidadCreditos });
   if (problema) return errorResponse(res, problema, 'INVALID_PLAN', 400);
+  const semanal = leerPorSemana(creditosPorSemana, cantidadCreditos);
+  if (semanal.problema) return errorResponse(res, semanal.problema, 'INVALID_PLAN', 400);
 
   const [planExistente] = await db.query('SELECT idPlan, tipo FROM plan WHERE idPlan = ?', [id]);
 
@@ -96,12 +109,12 @@ exports.update = asyncHandler(async (req, res) => {
   }
 
   await db.query(
-    'UPDATE plan SET nombre = ?, descripcion = ?, precio = ?, cantidadCreditos = ?, tipo = ? WHERE idPlan = ?',
-    [nombre, descripcion || null, precio, cantidadCreditos, tipo, id]
+    'UPDATE plan SET nombre = ?, descripcion = ?, precio = ?, cantidadCreditos = ?, creditosPorSemana = ?, tipo = ? WHERE idPlan = ?',
+    [nombre, descripcion || null, precio, cantidadCreditos, semanal.valor, tipo, id]
   );
 
   return successResponse(res, 'Plan actualizado correctamente', {
-    idPlan: Number(id), nombre, descripcion, precio, cantidadCreditos, tipo
+    idPlan: Number(id), nombre, descripcion, precio, cantidadCreditos, creditosPorSemana: semanal.valor, tipo
   });
 });
 
