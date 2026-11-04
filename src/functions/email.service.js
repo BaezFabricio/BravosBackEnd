@@ -20,34 +20,40 @@ const transporter = nodemailer.createTransport({
 /**
  * Función para enviar el correo con el enlace de verificación
  */
+const escapar = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 const sendVerificationEmail = async (email, nombre, token) => {
   // Construir la URL de verificación usando la interfaz del frontend existente
   const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
   const urlVerificacion = `${frontendUrl}/verificar-cuenta/${token}`;
+  const primerNombre = escapar(String(nombre || '').trim().split(/\s+/)[0]);
 
   const mailOptions = {
-    from: `"Bravos Gym 🏋️‍♂️" <${process.env.SMTP_USER}>`,
+    from: `"Bravos Box" <${process.env.SMTP_USER}>`,
     to: email,
-    subject: '¡Activa tu cuenta en Bravos Gym! 💪',
+    subject: 'Activá tu cuenta de Bravos Box',
+    text: `Hola${primerNombre ? ' ' + primerNombre : ''}, creaste tu cuenta en Bravos Box. Para activarla abrí este enlace: ${urlVerificacion}
+
+Si no fuiste vos, ignorá este correo y no se creará nada.`,
     html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #111; border-radius: 10px; background-color: #ffffff;">
-        <h2 style="color: #111; text-align: center; text-transform: uppercase;">¡Bienvenido a Bravos Gym, ${nombre}!</h2>
-        <p style="font-size: 16px; color: #333; line-height: 1.5;">
-          Gracias por sumarte a nuestra comunidad. Para activar por completo tu cuenta y empezar a gestionar tus rutinas y asistencias, haz clic en el siguiente enlace de activación:
-        </p>
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${urlVerificacion}" style="background-color: #2e7d32; color: white; padding: 14px 35px; text-decoration: none; font-size: 18px; font-weight: bold; border-radius: 5px; display: inline-block; text-transform: uppercase; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-            Activar Mi Cuenta
-          </a>
+      <div style="background:#0e100a;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;">
+        <div style="max-width:520px;margin:0 auto;background:#16190f;border:1px solid #3a3d32;border-radius:12px;padding:32px 28px;color:#ecefe4;">
+          <p style="margin:0 0 20px;font-size:13px;letter-spacing:.3em;font-weight:900;color:#9be600;">BRAVOS BOX</p>
+          <h1 style="margin:0 0 14px;font-size:26px;line-height:1.15;text-transform:uppercase;color:#ecefe4;">¡Último paso${primerNombre ? ', ' + primerNombre : ''}!</h1>
+          <p style="margin:0 0 24px;font-size:16px;line-height:1.5;color:#c9cdbd;">
+            Tu cuenta ya está creada. Tocá el botón para activarla y empezar a reservar tus clases.
+          </p>
+          <div style="text-align:center;margin:0 0 24px;">
+            <a href="${urlVerificacion}" style="background:#9be600;color:#0b0c09;padding:16px 36px;text-decoration:none;font-size:17px;font-weight:900;letter-spacing:.08em;border-radius:8px;display:inline-block;text-transform:uppercase;">Activar mi cuenta</a>
+          </div>
+          <p style="margin:0 0 6px;font-size:13px;color:#8a8f7a;">Si el botón no funciona, copiá y pegá esta dirección en tu navegador:</p>
+          <p style="margin:0 0 24px;font-size:13px;word-break:break-all;"><a href="${urlVerificacion}" style="color:#9be600;">${urlVerificacion}</a></p>
+          <hr style="border:none;border-top:1px dashed #3a3d32;margin:0 0 16px;">
+          <p style="margin:0;font-size:12px;line-height:1.5;color:#8a8f7a;">
+            ¿No fuiste vos? Ignorá este correo: sin activar el enlace no se crea nada.<br>
+            Es un mensaje automático de Bravos Box, por favor no lo respondas.
+          </p>
         </div>
-        <p style="font-size: 14px; color: #666; text-align: center;">
-          Si el botón no funciona, copia y pega esta dirección en tu navegador:<br>
-          <a href="${urlVerificacion}" style="color: #2e7d32; word-break: break-all;">${urlVerificacion}</a>
-        </p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 25px 0;">
-        <p style="font-size: 11px; color: #999; text-align: center;">
-          Este correo fue generado automáticamente por el sistema de Bravos Gym. Por favor, no lo respondas.
-        </p>
       </div>
     `
   };

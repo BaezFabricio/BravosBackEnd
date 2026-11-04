@@ -337,7 +337,7 @@ exports.verificarCuenta = asyncHandler(async (req, res) => {
   const { token } = req.params;
 
   const [usuarios] = await db.query(
-    `SELECT u.idUsuario, u.estado, u.idPerfil, p.nombrecompleto
+    `SELECT u.idUsuario, u.estado, u.idPerfil, u.correo_verificado, p.nombrecompleto
      FROM usuario u INNER JOIN persona p ON p.idPersona = u.idPersona
      WHERE u.token_verificacion = ?`,
     [token]
@@ -347,12 +347,15 @@ exports.verificarCuenta = asyncHandler(async (req, res) => {
     return errorResponse(res, 'El enlace de verificación es inválido o ya fue utilizado.', 'INVALID_TOKEN', 400);
   }
 
-  const { idUsuario, estado, idPerfil, nombrecompleto } = usuarios[0];
+  const { idUsuario, estado, idPerfil, nombrecompleto, correo_verificado: yaVerificado } = usuarios[0];
 
-  await db.query(
-    'UPDATE usuario SET correo_verificado = 1, token_verificacion = NULL WHERE idUsuario = ?', 
-    [idUsuario]
-  );
+  // El enlace ya se usó (doble toque, o una vista previa del correo lo abrió antes): la cuenta ya está verificada, no es un error.
+  // No se vuelve a activar nada: solo se avisa. El token se conserva únicamente para poder responder esto.
+  if (Number(yaVerificado) === 1) {
+    return successResponse(res, 'Tu cuenta ya estaba verificada. Ya podés iniciar sesión.', null);
+  }
+
+  await db.query('UPDATE usuario SET correo_verificado = 1 WHERE idUsuario = ?', [idUsuario]);
 
   // Alta por cuenta propia: se registra como "pendiente" y sin perfil. Al confirmar que el correo es suyo se activa sola, con el
   // perfil Alumno, así no queda esperando que el administrador la habilite a mano (antes podía iniciar sesión pero no ver nada).
