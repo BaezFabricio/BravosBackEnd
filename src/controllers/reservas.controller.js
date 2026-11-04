@@ -77,6 +77,11 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     if (clase.fechaEspecifica ? clase.fechaEspecifica !== fechaReserva : DIAS[new Date(fechaReserva + 'T12:00:00').getDay()] !== String(clase.diaHorario).toUpperCase()) {
       return rechazar('Esa clase no se dicta en la fecha elegida.', 'DATE_MISMATCH');
     }
+    // Solo se reservan las clases del día (la regla del gimnasio): no se puede dejar reservada una clase de otro día
+    const [[{ hoy }]] = await connection.query("SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS hoy");
+    if (fechaReserva !== hoy) {
+      return rechazar('Solo se pueden reservar las clases del día.', 'SAME_DAY_ONLY');
+    }
     if (clase.minutosParaInicio === null || clase.minutosParaInicio < 120) {
       return rechazar('Solo se puede reservar hasta 2 horas antes de que empiece la clase.', 'TOO_LATE');
     }
