@@ -35,3 +35,7 @@ deploy/.env
 
 # Copias de seguridad de datos: nunca al repositorio
 backups/
+
+# Copias y respaldos de los .env (llevan secretos: nunca al repositorio)
+.env.*
+!.env.example
