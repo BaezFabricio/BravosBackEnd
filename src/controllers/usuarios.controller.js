@@ -15,7 +15,7 @@ const { hashPassword } = require('../functions/encryption');
 const { problemaContrasena } = require('../functions/recuperacion');
 const { esSuperAdmin, puedeAsignarPerfil } = require('../functions/escalada');
 const { invalidarSesiones, olvidarVersion } = require('../functions/versionSesion');
-const { sendPagoConfirmadoEmail } = require('../functions/email.service');
+const { sendPagoConfirmadoEmail, sendBienvenidaSinCuentaEmail } = require('../functions/email.service');
 
 // Formato de los datos personales al editar (solo se revisan los que vienen en el pedido)
 function problemaDatosUsuario({ nombre, correo, dni, telefono }) {
@@ -211,6 +211,8 @@ exports.createSinCuenta = asyncHandler(async (req, res) => {
       [persona.insertId, `sin-cuenta-${persona.insertId}`, perfiles[0].idPerfil]
     );
     await connection.commit();
+    // Si se cargó el correo, se le confirma el alta (sin esperar: el envío tarda unos segundos y captura sus errores)
+    if (correoLimpio) sendBienvenidaSinCuentaEmail(correoLimpio, nombre);
     return successResponse(res, 'Alumno registrado sin cuenta', {
       idUsuario: usuario.insertId, nombrecompleto: nombre, dni: String(dni).trim(), correo: correoLimpio || null, telefono: telefonoLimpio || null, sinAcceso: true,
     }, 201);
@@ -915,7 +917,7 @@ exports.createAbonoUsuario = asyncHandler(async (req, res) => {
   // Comprobante por correo también cuando el pago lo carga el administrador (efectivo o transferencia).
   // Sin await: el envío tarda segundos y la función captura sus propios errores.
   const [[destino]] = await db.query(
-    'SELECT p.correo, p.nombrecompleto FROM usuario u INNER JOIN persona p ON p.idPersona = u.idPersona WHERE u.idUsuario = ?',
+    'SELECT p.correo, p.nombrecompleto, (u.contrasena IS NULL) AS sinCuenta FROM usuario u INNER JOIN persona p ON p.idPersona = u.idPersona WHERE u.idUsuario = ?',
     [Number(id)]
   );
   if (destino?.correo) {
@@ -925,6 +927,7 @@ exports.createAbonoUsuario = asyncHandler(async (req, res) => {
       creditos: plan.cantidadCreditos,
       vencimiento: new Date(`${String(vencimientoReal).slice(0, 10)}T12:00:00`), // T12:00 para que no se corra un día
       referencia: `Pago-${pagoResult.insertId}`,
+      sinCuenta: Boolean(destino.sinCuenta),
     });
   }
 

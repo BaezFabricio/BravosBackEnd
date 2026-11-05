@@ -33,7 +33,7 @@ async function avisarVencimientosProximos() {
     SELECT c.idCredito, c.creditosCisponibles AS disponibles,
            DATE_FORMAT(c.fechaVencimiento, '%Y-%m-%d') AS vence,
            DATEDIFF(c.fechaVencimiento, CURDATE()) AS dias,
-           u.idUsuario, p.correo, p.nombrecompleto, pl.nombre AS plan
+           u.idUsuario, p.correo, p.nombrecompleto, pl.nombre AS plan, (u.contrasena IS NULL) AS sinCuenta
     FROM credito c
     JOIN alumno a ON a.idAlumno = c.idAlumno
     JOIN persona p ON p.idPersona = a.idPersona
@@ -64,7 +64,7 @@ async function avisarVencimientosProximos() {
   );
     if (m.correo) {
       await sendMembresiaVenceEmail(m.correo, m.nombrecompleto || 'Alumno', {
-        plan: m.plan, fechaVencimiento: m.vence, diasRestantes: m.dias, creditosDisponibles: m.disponibles,
+        plan: m.plan, fechaVencimiento: m.vence, diasRestantes: m.dias, creditosDisponibles: m.disponibles, sinCuenta: Boolean(m.sinCuenta),
       }).catch(() => {});
     }
     enviados++;
@@ -86,7 +86,7 @@ async function procesarMembresias() {
     if (dia >= 1 && dia <= 9) {
       const diasRestantes = 10 - dia;
       const [porVencer] = await db.query(`
-        SELECT u.idUsuario, p.correo, p.nombrecompleto
+        SELECT u.idUsuario, p.correo, p.nombrecompleto, (u.contrasena IS NULL) AS sinCuenta
         FROM usuario u
         JOIN persona p ON p.idPersona = u.idPersona
         LEFT JOIN alumno a ON a.idPersona = u.idPersona
@@ -113,7 +113,7 @@ async function procesarMembresias() {
     { cuerpo: 'Recordá abonar tu membresía antes del día 10' }
   );
         if (u.correo) {
-          await sendMembresiaPorVencerEmail(u.correo, u.nombrecompleto || 'Alumno', diasRestantes).catch(() => {});
+          await sendMembresiaPorVencerEmail(u.correo, u.nombrecompleto || 'Alumno', diasRestantes, Boolean(u.sinCuenta)).catch(() => {});
         }
       }
 

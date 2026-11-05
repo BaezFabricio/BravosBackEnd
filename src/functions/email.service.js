@@ -183,10 +183,23 @@ const sendClaseDisponibleEmail = async (email, nombre, clase) => {
 };
 
 /**
+ * Botón de los correos de membresía y pagos. Quien todavía no tiene cuenta (lo cargó el administrador) no puede entrar a su panel:
+ * en vez de "ver mi membresía" se le ofrece crear su contraseña (la recuperación de contraseña la activa).
+ */
+const botonCuenta = (frontendUrl, sinCuenta, ruta, texto) => (sinCuenta
+  ? {
+    href: `${frontendUrl}/recuperar-contrasena`,
+    texto: 'Crear mi contraseña →',
+    nota: `<p style="font-size: 14px; color: #555; line-height: 1.6; margin: 0 0 8px 0;">Todavía no tenés contraseña para usar la app. Creala con el botón de abajo para ver tu membresía y reservar tus clases. Si preferís, también podés consultarnos en el box.</p>`,
+  }
+  : { href: `${frontendUrl}${ruta}`, texto, nota: '' });
+
+/**
  * Aviso de membresía por vencer — se envía entre el 1 y el 9 del mes
  */
-const sendMembresiaPorVencerEmail = async (email, nombre, diasRestantes) => {
+const sendMembresiaPorVencerEmail = async (email, nombre, diasRestantes, sinCuenta = false) => {
   const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const cta = botonCuenta(frontendUrl, sinCuenta, '/alumno/creditos', 'Ver mi membresía →');
 
   const mailOptions = {
     from: `"Bravos Box 🏋️‍♂️" <${process.env.SMTP_USER}>`,
@@ -200,7 +213,7 @@ const sendMembresiaPorVencerEmail = async (email, nombre, diasRestantes) => {
         </div>
 
         <div style="padding: 32px;">
-          <p style="font-size: 16px; color: #333; margin: 0 0 16px 0;">Hola <strong>${nombre}</strong>,</p>
+          <p style="font-size: 16px; color: #333; margin: 0 0 16px 0;">Hola <strong>${escapeHtml(nombre)}</strong>,</p>
           <p style="font-size: 15px; color: #555; line-height: 1.6; margin: 0 0 24px 0;">
             Te recordamos que la fecha límite de pago es el <strong style="color: #111;">día 10 de cada mes</strong>.
             ${diasRestantes !== null ? `Te quedan <strong>${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}</strong> para renovar.` : 'El plazo vence pronto.'}
@@ -212,9 +225,10 @@ const sendMembresiaPorVencerEmail = async (email, nombre, diasRestantes) => {
             </p>
           </div>
 
+          ${cta.nota}
           <div style="text-align: center; margin: 28px 0;">
-            <a href="${frontendUrl}/alumno/creditos" style="background-color: #a3e635; color: #000; padding: 14px 40px; text-decoration: none; font-size: 14px; font-weight: 900; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">
-              Ver mi membresía →
+            <a href="${cta.href}" style="background-color: #a3e635; color: #000; padding: 14px 40px; text-decoration: none; font-size: 14px; font-weight: 900; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">
+              ${cta.texto}
             </a>
           </div>
         </div>
@@ -243,8 +257,9 @@ const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
  * Como los otros avisos, nunca lanza: un fallo de SMTP no debe afectar la
  * acreditación, que ya quedó guardada.
  */
-const sendPagoConfirmadoEmail = async (email, nombre, { plan, importe, creditos, vencimiento, referencia }) => {
+const sendPagoConfirmadoEmail = async (email, nombre, { plan, importe, creditos, vencimiento, referencia, sinCuenta = false }) => {
   const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const cta = botonCuenta(frontendUrl, sinCuenta, '/alumno/creditos', 'Ver mis créditos →');
   const monto = Number(importe).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const venc = vencimiento
     ? new Date(vencimiento).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -281,9 +296,10 @@ const sendPagoConfirmadoEmail = async (email, nombre, { plan, importe, creditos,
             ${referencia ? fila('N° de operación', `<span style="font-size: 12px;">${escapeHtml(referencia)}</span>`) : ''}
           </table>
 
+          ${cta.nota}
           <div style="text-align: center; margin: 28px 0;">
-            <a href="${frontendUrl}/alumno/creditos" style="background-color: #a3e635; color: #000; padding: 14px 40px; text-decoration: none; font-size: 14px; font-weight: 900; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">
-              Ver mis créditos →
+            <a href="${cta.href}" style="background-color: #a3e635; color: #000; padding: 14px 40px; text-decoration: none; font-size: 14px; font-weight: 900; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">
+              ${cta.texto}
             </a>
           </div>
         </div>
@@ -373,8 +389,9 @@ const sendArrepentimientoEmails = async ({ codigo, nombre, dni, correo, telefono
 /**
  * Aviso de que una membresía vigente vence en pocos días (mismo criterio que el panel).
  */
-const sendMembresiaVenceEmail = async (email, nombre, { plan, fechaVencimiento, diasRestantes, creditosDisponibles }) => {
+const sendMembresiaVenceEmail = async (email, nombre, { plan, fechaVencimiento, diasRestantes, creditosDisponibles, sinCuenta = false }) => {
   const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const cta = botonCuenta(frontendUrl, sinCuenta, '/alumno/creditos', 'Renovar membresía →');
   // fechaVencimiento llega como 'YYYY-MM-DD': se arma a mediodía para no correr el día por la zona horaria
   const fecha = new Date(`${fechaVencimiento}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
   const cuando = diasRestantes <= 0 ? 'hoy' : diasRestantes === 1 ? 'mañana' : `en ${diasRestantes} días`;
@@ -398,9 +415,10 @@ const sendMembresiaVenceEmail = async (email, nombre, { plan, fechaVencimiento, 
           <p style="font-size: 15px; color: #555; line-height: 1.6; margin: 0 0 24px 0;">
             Renová tu membresía para seguir reservando clases sin cortes.
           </p>
+          ${cta.nota}
           <div style="text-align: center; margin: 28px 0;">
-            <a href="${frontendUrl}/alumno/creditos" style="background-color: #a3e635; color: #000; padding: 14px 40px; text-decoration: none; font-size: 14px; font-weight: 900; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">
-              Renovar membresía →
+            <a href="${cta.href}" style="background-color: #a3e635; color: #000; padding: 14px 40px; text-decoration: none; font-size: 14px; font-weight: 900; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">
+              ${cta.texto}
             </a>
           </div>
         </div>
@@ -419,7 +437,50 @@ const sendMembresiaVenceEmail = async (email, nombre, { plan, fechaVencimiento, 
   }
 };
 
+/**
+ * Aviso de alta para un alumno que el administrador cargó sin cuenta: le confirma el registro y le explica cómo crear su
+ * contraseña (con el enlace de recuperación). Todo lo demás (membresías, pagos) lo sigue gestionando el box.
+ */
+const sendBienvenidaSinCuentaEmail = async (email, nombre) => {
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const mailOptions = {
+    from: `"Bravos Box" <${process.env.SMTP_USER}>`,
+    to: email,
+    subject: 'Te registramos en Bravos Box',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e0e0e0;">
+        <div style="background: #111111; padding: 28px 32px; text-align: center;">
+          <p style="color: #a3e635; font-size: 11px; font-weight: 900; letter-spacing: 3px; text-transform: uppercase; margin: 0 0 8px 0;">Bravos Box</p>
+          <h1 style="color: #ffffff; font-size: 24px; font-weight: 900; text-transform: uppercase; margin: 0; letter-spacing: 1px;">¡Ya sos parte del box!</h1>
+        </div>
+        <div style="padding: 32px;">
+          <p style="font-size: 16px; color: #333; margin: 0 0 16px 0;">Hola <strong>${escapeHtml(nombre)}</strong>,</p>
+          <p style="font-size: 15px; color: #555; line-height: 1.6; margin: 0 0 20px 0;">
+            Te registramos en Bravos Box. Desde ahora te vamos a escribir a este correo con los avisos de tu membresía y los comprobantes de tus pagos.
+          </p>
+          <p style="font-size: 15px; color: #555; line-height: 1.6; margin: 0 0 24px 0;">
+            Si querés reservar tus clases y ver tus créditos desde la app, creá tu contraseña con el botón de abajo. Es opcional: también podés seguir gestionando todo en el box.
+          </p>
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${frontendUrl}/recuperar-contrasena" style="background-color: #a3e635; color: #000; padding: 14px 40px; text-decoration: none; font-size: 14px; font-weight: 900; display: inline-block; text-transform: uppercase; letter-spacing: 1px;">Crear mi contraseña →</a>
+          </div>
+        </div>
+        <div style="background: #f5f5f5; padding: 16px 32px; text-align: center;">
+          <p style="font-size: 11px; color: #999; margin: 0;">Este correo fue generado automáticamente por Bravos Box. Si no esperabas este mensaje, ignoralo.</p>
+        </div>
+      </div>
+    `,
+  };
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log('[Email Real] Bienvenida (sin cuenta) enviada.');
+  } catch (error) {
+    console.error('[Email Error] No se pudo enviar la bienvenida:', error.message);
+  }
+};
+
 module.exports = {
+  sendBienvenidaSinCuentaEmail,
   sendMembresiaVenceEmail,
   sendArrepentimientoEmails,
   sendVerificationEmail,
