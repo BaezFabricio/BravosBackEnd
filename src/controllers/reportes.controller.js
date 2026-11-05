@@ -64,6 +64,15 @@ exports.getResumen = asyncHandler(async (req, res) => {
     ORDER BY total DESC
   `);
 
+  // Ingreso del período por forma de pago (efectivo, transferencia, MercadoPago…)
+  const [ingresoPorMetodo] = await db.query(`
+    SELECT COALESCE(NULLIF(TRIM(formaPago), ''), 'Sin especificar') AS metodo, SUM(importe) AS total
+    FROM pago
+    WHERE estadoPago = 'confirmado' AND fechaPago >= ${p.desde} AND fechaPago < CURDATE() + INTERVAL 1 DAY
+    GROUP BY metodo
+    ORDER BY total DESC
+  `);
+
   // Alumnos con un plan activo hoy (crédito activo y sin vencer), por plan
   const [alumnosPorPlan] = await db.query(`
     SELECT pl.nombre AS plan, COUNT(DISTINCT c.idAlumno) AS cantidad
@@ -120,6 +129,7 @@ exports.getResumen = asyncHandler(async (req, res) => {
     ingresoPrevio: Number(ingreso.previo),
     ingresosPorMes,
     ingresoPorPlan,
+    ingresoPorMetodo,
     alumnosPorPlan,
     alumnosConPlan: Number(conPlan.total),
     ocupacionClases,

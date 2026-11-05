@@ -2,7 +2,14 @@ const envConfig = require('../config/env');
 
 // La sesión viaja en una cookie httpOnly: el JavaScript de la página (y por lo tanto un XSS) no puede leerla.
 const NOMBRE_COOKIE = 'bravos_token';
-const DURACION_MS = 24 * 60 * 60 * 1000; // igual que la vida del JWT
+// La cookie dura lo mismo que el token (JWT_EXPIRES_IN: 12h, 7d, 30m…); si el valor no se entiende, 12 horas
+function duracionEnMs(valor) {
+  const m = /^(d+)s*([smhd]?)$/i.exec(String(valor || '').trim());
+  if (!m) return 12 * 60 * 60 * 1000;
+  const unidad = { s: 1000, m: 60 * 1000, h: 60 * 60 * 1000, d: 24 * 60 * 60 * 1000 }[m[2].toLowerCase() || 's'];
+  return Number(m[1]) * unidad;
+}
+const DURACION_MS = duracionEnMs(envConfig.jwt.expiresIn);
 
 const opciones = () => ({
   httpOnly: true,
