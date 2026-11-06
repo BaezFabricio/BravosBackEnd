@@ -124,16 +124,65 @@ exports.registrarEntrada = asyncHandler(async (req, res) => {
   }, 201);
 });
 
-/** GET /asistencia/check-in/estado — para el panel: si hay clave, y cuántos check-in hubo hoy */
+/** GET /asistencia/check-in/estado — para el panel: si hay clave, y el detalle de hoy por clase y tipo */
 exports.estado = asyncHandler(async (req, res) => {
   res.set('Cache-Control', 'no-store');
   await asegurarTabla();
   const [[fila]] = await db.query('SELECT creadaEn FROM checkin_config WHERE id = 1');
-  const [[{ hoy }]] = await db.query("SELECT COUNT(*) AS hoy FROM asistencia WHERE fecha = CURDATE() AND observacion = 'checkin'");
+
+  // Clases de hoy (las recurrentes del día de la semana y las únicas de hoy), con reservados y registrados
+  const [clases] = await db.query(`
+    SELECT h.idHorario, c.nombreClase, c.tipoPlan, tc.nombre AS tipo,
+           TIME_FORMAT(h.horaInicio, '%H:%i') AS inicio, TIME_FORMAT(h.horaFin, '%H:%i') AS fin,
+           (SELECT COUNT(*) FROM reserva r WHERE r.idHorario = h.idHorario AND r.fechaReserva = CURDATE() AND r.estado = 'proxima') AS reservados,
+           (SELECT COUNT(*) FROM asistencia a INNER JOIN reserva r ON r.idReserva = a.idReserva
+             WHERE r.idHorario = h.idHorario AND a.fecha = CURDATE() AND a.estado = 'presente') AS registrados
+    FROM horarioclase h
+    INNER JOIN diaclase c ON c.idClase = h.idClase
+    LEFT JOIN tipo_clase tc ON tc.codigo = c.tipoPlan
+    WHERE c.estado = 'Activo'
+      AND (h.fechaEspecifica = CURDATE()
+           OR (h.fechaEspecifica IS NULL AND h.dia = ELT(WEEKDAY(CURDATE()) + 1, 'LUNES','MARTES','MIERCOLES','JUEVES','VIERNES','SABADO','DOMINGO')))
+    ORDER BY h.horaInicio
+  `);
+
+  // Quién se registró hoy (nombre de pila y apellido, la clase y de dónde vino el registro)
+  const [registrados] = await db.query(`
+    SELECT p.nombrecompleto, c.nombreClase, TIME_FORMAT(h.horaInicio, '%H:%i') AS inicio, a.observacion
+    FROM asistencia a
+    INNER JOIN reserva r ON r.idReserva = a.idReserva
+    INNER JOIN horarioclase h ON h.idHorario = r.idHorario
+    INNER JOIN diaclase c ON c.idClase = h.idClase
+    INNER JOIN alumno al ON al.idAlumno = r.idAlumno
+    INNER JOIN persona p ON p.idPersona = al.idPersona
+    WHERE a.fecha = CURDATE() AND a.estado = 'presente'
+    ORDER BY h.horaInicio, p.nombrecompleto
+    LIMIT 200
+  `);
+
+  // Resumen por tipo de clase (CrossFit, Planificación, etc.)
+  const porTipo = {};
+  for (const c of clases) {
+    const t = c.tipo || 'Sin tipo';
+    porTipo[t] = porTipo[t] || { tipo: t, reservados: 0, registrados: 0 };
+    porTipo[t].reservados += Number(c.reservados) || 0;
+    porTipo[t].registrados += Number(c.registrados) || 0;
+  }
+
+  const origen = (obs) => (obs === 'checkin' ? 'Check-in' : obs === 'autoregistro' ? 'Desde la app' : 'Profesor');
+  const totalRegistrados = registrados.length;
   return successResponse(res, 'Estado del check-in', {
     configurado: Boolean(fila),
     creadaEn: fila ? String(fila.creadaEn).slice(0, 16) : null,
-    registradosHoy: Number(hoy) || 0,
+    registradosHoy: totalRegistrados,
+    porTipo: Object.values(porTipo),
+    clasesHoy: clases.map((c) => ({
+      idHorario: c.idHorario, nombre: c.nombreClase, tipo: c.tipo || 'Sin tipo', inicio: c.inicio, fin: c.fin,
+      reservados: Number(c.reservados) || 0, registrados: Number(c.registrados) || 0,
+    })),
+    registrados: registrados.map((r) => ({
+      nombre: r.nombrecompleto, clase: r.nombreClase, inicio: r.inicio, origen: origen(r.observacion),
+    })),
   });
 });
 
