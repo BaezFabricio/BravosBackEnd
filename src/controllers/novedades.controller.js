@@ -13,11 +13,10 @@ const { limpiarArchivoDeImagen } = require('../utils/imagenes');
 const TIPOS = ['aviso', 'evento', 'promo', 'comunidad', 'novedad', 'noticia'];
 const tipoValido = (v) => (TIPOS.includes(v) ? v : 'aviso');
 const esVerdadero = (v) => v === true || v === 'true' || v === '1' || v === 1;
-// Opciones de color y tipografía: solo estas claves se guardan (lo demás se descarta)
-const COLORES = ['lima', 'celeste', 'amarillo', 'naranja', 'rojo', 'rosa', 'violeta', 'blanco'];
-const FUENTES = ['stencil', 'condensada', 'moderna', 'mono'];
-const colorValido = (v) => (COLORES.includes(v) ? v : null); // null = el color que corresponde al tipo
-const fuenteValida = (v) => (FUENTES.includes(v) ? v : 'stencil');
+// Color: cualquier color elegido en la rueda, solo si es #rrggbb (lo demás se descarta); null = el color del tipo
+const colorValido = (v) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : null);
+// La tipografía de los títulos es una sola (ya no se elige); la columna queda con su valor fijo
+const fuenteValida = () => 'stencil';
 
 const TABLA = `
   CREATE TABLE IF NOT EXISTS novedad (
