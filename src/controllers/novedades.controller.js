@@ -10,7 +10,7 @@ const { limpiarArchivoDeImagen } = require('../utils/imagenes');
  * Se muestran en la portada a quienes tienen sesión iniciada. Cargarlas y editarlas requiere el permiso de configuración.
  */
 
-const TIPOS = ['aviso', 'evento', 'promo', 'comunidad'];
+const TIPOS = ['aviso', 'evento', 'promo', 'comunidad', 'novedad', 'noticia'];
 const tipoValido = (v) => (TIPOS.includes(v) ? v : 'aviso');
 const esVerdadero = (v) => v === true || v === 'true' || v === '1' || v === 1;
 // Opciones de color y tipografía: solo estas claves se guardan (lo demás se descarta)
