@@ -133,6 +133,23 @@ exports.vigentes = asyncHandler(async (req, res) => {
   return successResponse(res, 'Novedades', filas);
 });
 
+/** GET /novedades/historial — todas las publicadas (vigentes y vencidas, sin las ocultas), las más nuevas primero.
+ *  Cualquiera con sesión. Solo los campos que se muestran; la marca "vigente" la calcula el servidor. */
+exports.historial = asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  await asegurarTabla();
+  const [filas] = await db.query(
+    `SELECT idNovedad, titulo, tipo, texto, imagen, enlace, enlaceTexto, colorFondo, fuenteTitulo, DATE_FORMAT(creadaEn, '%d/%m/%Y') AS fecha,
+            DATE_FORMAT(hasta, '%d/%m/%Y') AS hasta,
+            (hasta IS NULL OR hasta >= CURDATE()) AS vigente
+     FROM novedad
+     WHERE activa = 1
+     ORDER BY creadaEn DESC, idNovedad DESC
+     LIMIT 200`
+  );
+  return successResponse(res, 'Novedades', filas.map((f) => ({ ...f, vigente: Boolean(f.vigente) })));
+});
+
 /** GET /novedades — todas, para administrar (requiere configuración: consulta) */
 exports.listar = asyncHandler(async (req, res) => {
   res.set('Cache-Control', 'no-store');

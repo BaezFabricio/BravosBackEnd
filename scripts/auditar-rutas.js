@@ -60,6 +60,7 @@ const SOLO_AUTENTICADAS = {
   'GET /api/vv1/profesores/mis-clases': 'Ver mis clases (el controlador exige ser profesor)',
   'GET /landing/banco': 'Datos bancarios del gimnasio para pagar por transferencia: los necesita cualquier alumno con sesión (no son datos de otras personas)',
   'GET /api/vv1/novedades/vigentes': 'Novedades vigentes: cualquier persona con sesión las ve en la portada (no revelan datos personales)',
+  'GET /api/vv1/novedades/historial': 'Novedades publicadas (vigentes y vencidas, sin las ocultas) para la página Todas: cualquier persona con sesión; solo lectura, sin datos personales',
   'GET /api/vv1/push/clave-publica': 'Clave pública VAPID para activar notificaciones (es pública por diseño)',
   'GET /api/vv1/clases/para-mi': 'Turnos de los planes vigentes del propio alumno (el alumno sale del token; no recibe ningún id)',
   'POST /api/vv1/push/suscripcion': 'Activa las notificaciones push del propio dispositivo (el usuario sale del token)',

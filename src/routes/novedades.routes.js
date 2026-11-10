@@ -28,6 +28,8 @@ const recibirImagen = (req, res, next) => subida(req, res, (err) => {
 
 // Cualquier persona con sesión ve las novedades vigentes (en la portada)
 router.get('/vigentes', authenticateToken, ctrl.vigentes);
+// Todas las publicadas (vigentes y vencidas), para la página "Todas": cualquiera con sesión, solo lectura
+router.get('/historial', authenticateToken, ctrl.historial);
 
 // Administrar las novedades: quien puede modificar la configuración del box
 router.get('/', authenticateToken, requirePermission('configuracion', 'consulta'), ctrl.listar);
