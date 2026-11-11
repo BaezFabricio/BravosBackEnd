@@ -23,7 +23,6 @@ router.get('/admin/usuario/:idUsuario', authenticateToken, requirePermission('Re
 router.patch('/:id/cancelar', authenticateToken, requireAnyPermission([['alumno_reservas', 'modificacion'], ['reservas', 'modificacion']]), reservasController.cancelarReserva);
 
 // El alumno marca su propia asistencia (solo su reserva, solo hoy, en su horario)
-router.post('/:id/marcar-asistencia', authenticateToken, requireAnyPermission([['alumno_reservas', 'consulta'], ['reservas', 'consulta']]), reservasController.marcarMiAsistencia);
 
 router.get('/mis-creditos-movimientos', authenticateToken, reservasController.obtenerMisCreditosYMovimientos);
 
