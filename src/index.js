@@ -17,6 +17,7 @@ const { crearTablaGuias } = require('./functions/guias.service');
 const { crearTablaTurnosHorarios } = require('./functions/turnosHorarios');
 const { crearTablaTiposClase } = require('./functions/tiposClase');
 const { prepararCreditosSemanales, iniciarCronCreditosSemanales } = require('./functions/creditosSemanales');
+const { prepararDescuentoDiario, iniciarCronDescuentoDiario } = require('./functions/descuentoDiario');
 const { iniciarCronPublicacion } = require('./functions/publicacionCron');
 const { iniciarCronMembresias } = require('./functions/membresiasCron');
 
@@ -49,6 +50,7 @@ async function startServer() {
       await crearTablaPush(); // dispositivos con notificaciones push activadas
       await crearTablaGuias(); // qué guías de bienvenida vio cada persona
       await prepararCreditosSemanales(); // créditos por semana de los planes y descuento de lo no usado
+      await prepararDescuentoDiario(); // tabla de días cobrados y columna de cobro en las reservas
       await crearTablaTiposClase(); // tipos de clase del box (CrossFit, Planificación Atleta…): unen planes, clases y reservas
       await crearTablaTurnosHorarios(); // horarios de los turnos del box (lista para elegir al crear una clase)
       await crearTablasLegales();
@@ -95,6 +97,7 @@ async function startServer() {
       iniciarCronPublicacion();
       iniciarCronMembresias();
       iniciarCronCreditosSemanales(); // descuenta los créditos que sobraron en cada semana terminada
+      iniciarCronDescuentoDiario(); // cobra el día de apertura a los planes sin cupo semanal
     } catch (dbError) {
       if (requireDbOnStartup) {
         throw dbError;

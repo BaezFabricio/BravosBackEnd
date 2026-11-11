@@ -190,28 +190,45 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     // 3. 📝 EJECUTAMOS LAS OPERACIONES EN TU BASE DE DATOS REAL
     const horaActual = new Date().toLocaleTimeString('es-AR', { hour12: false });
     
+    // Planes sin cupo semanal: el día se cobra una sola vez. Si ese día ya está cobrado (por el descuento diario
+    // o por otra reserva), esta reserva no descuenta nada más.
+    const esSinCupoSemanal = !creditoActivo.porSemana;
+    let cobra = true;
+    if (esSinCupoSemanal) {
+      const [[marca]] = await connection.query(
+        'SELECT COUNT(*) AS n FROM credito_dia WHERE idCredito = ? AND fecha = ?',
+        [creditoActivo.idCredito, fechaReserva]
+      );
+      cobra = Number(marca.n) === 0;
+    }
+
     // Insertamos la reserva (guardamos el idCredito para saber de dónde descontó por si cancela)
     const [insertResult] = await connection.query(
-      "INSERT INTO reserva (fechaReserva, horaReserva, estado, idAlumno, idHorario, idCredito) VALUES (?, ?, 'proxima', ?, ?, ?)",
-      [fechaReserva, horaActual, idAlumno, idHorario, creditoActivo.idCredito]
+      "INSERT INTO reserva (fechaReserva, horaReserva, estado, idAlumno, idHorario, idCredito, cobroCredito) VALUES (?, ?, 'proxima', ?, ?, ?, ?)",
+      [fechaReserva, horaActual, idAlumno, idHorario, creditoActivo.idCredito, cobra ? 1 : 0]
     );
     const idReserva = insertResult.insertId;
 
-    // 🚀 DESCUENTO REAL: Modificamos las columnas de tu grilla 'creditosCisponibles' y 'creditosUtilizados'
-    await connection.query(
-      `UPDATE credito 
-       SET creditosCisponibles = creditosCisponibles - 1,
-           creditosUtilizados = creditosUtilizados + 1
-       WHERE idCredito = ?`,
-      [creditoActivo.idCredito]
-    );
+    if (cobra) {
+      // 🚀 DESCUENTO REAL: Modificamos las columnas de tu grilla 'creditosCisponibles' y 'creditosUtilizados'
+      await connection.query(
+        `UPDATE credito
+         SET creditosCisponibles = creditosCisponibles - 1,
+             creditosUtilizados = creditosUtilizados + 1
+         WHERE idCredito = ?`,
+        [creditoActivo.idCredito]
+      );
+      if (esSinCupoSemanal) {
+        await connection.query('INSERT IGNORE INTO credito_dia (idCredito, fecha) VALUES (?, ?)', [creditoActivo.idCredito, fechaReserva]);
+      }
+    }
 
     await connection.commit();
     connection.release();
 
     crearNotificacion(idUsuarioReal, 'reserva',
       'Reserva confirmada',
-      `Tu reserva para "${clase.nombreClase}" el ${fechaReserva} fue confirmada. Se descontó 1 crédito.`,
+      `Tu reserva para "${clase.nombreClase}" el ${fechaReserva} fue confirmada. ${cobra ? 'Se descontó 1 crédito.' : 'Ese día ya tenía su crédito descontado.'}`,
       '/alumno/reservas'
     );
 
@@ -437,7 +454,7 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
   try {
     // Traer la reserva y el idCredito asociado desde donde se descontó originalmente
     const sqlReserva = `
-      SELECT r.idReserva, r.fechaReserva, h.horaInicio, h.horaFin, r.estado, c.idClase, r.idCredito
+      SELECT r.idReserva, r.fechaReserva, h.horaInicio, h.horaFin, r.estado, c.idClase, r.idCredito, r.cobroCredito
       FROM reserva r
       INNER JOIN horarioclase h ON r.idHorario = h.idHorario
       INNER JOIN diaclase c ON h.idClase = c.idClase
@@ -502,13 +519,20 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
     await connection.query("UPDATE reserva SET estado = 'cancelada' WHERE idReserva = ?", [id]);
 
     // 🚀 DEVOLUCIÓN REAL: Si canceló a tiempo, devolvemos el pase usando tus columnas reales
-    if (devuelveCredito && reserva.idCredito) {
+    // Solo se devuelve si esta reserva era el cobro de su día. Al devolverla, el día vuelve a quedar sin cobrar
+    // (el descuento diario lo cobra después), así que no se descuenta dos veces.
+    if (devuelveCredito && reserva.idCredito && Number(reserva.cobroCredito) === 1) {
       await connection.query(
-        `UPDATE credito 
+        `UPDATE credito
          SET creditosCisponibles = creditosCisponibles + 1,
              creditosUtilizados = creditosUtilizados - 1
          WHERE idCredito = ?`,
         [reserva.idCredito]
+      );
+      await connection.query('UPDATE reserva SET cobroCredito = 0 WHERE idReserva = ?', [id]);
+      await connection.query(
+        'DELETE FROM credito_dia WHERE idCredito = ? AND fecha = ?',
+        [reserva.idCredito, reserva.fechaReserva]
       );
     }
 
