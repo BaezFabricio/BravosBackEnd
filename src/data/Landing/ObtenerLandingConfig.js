@@ -34,7 +34,7 @@ const ObtenerLandingConfig = async () => {
       email: '',
       instagram: '',
       horario_semana: 'Lun-Vie: 6:00 - 22:00',
-      horario_sabado: 'Sábado: 8:00 - 14:00',
+      horario_sabado: 'Sábado: 17:00 - 19:00',
       horario_domingo: 'Domingo: Cerrado',
       mapaUrl: '',
       whatsapp: '',
