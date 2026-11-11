@@ -62,25 +62,36 @@ exports.registrarEntrada = asyncHandler(async (req, res) => {
   if (!personas.length) return errorResponse(res, noTiene, 'SIN_RESERVA', 404);
   const alumno = personas[0];
 
-  // La reserva de hoy que corresponde a este momento (empieza dentro de 1 hora o está en curso)
-  const [reservas] = await db.query(
+  // Reservas de hoy del alumno. Cada clase se puede registrar desde 30 minutos antes de que empiece hasta que termina.
+  const [reservasHoy] = await db.query(
     `SELECT r.idReserva, r.idCredito, r.estado, c.nombreClase,
             TIME_FORMAT(h.horaInicio, '%H:%i') AS horaInicio, TIME_FORMAT(h.horaFin, '%H:%i') AS horaFin,
+            TIME_FORMAT(SUBTIME(h.horaInicio, '00:30:00'), '%H:%i') AS desde,
+            (CURTIME() >= SUBTIME(h.horaInicio, '00:30:00') AND CURTIME() <= h.horaFin) AS enVentana,
+            (CURTIME() < SUBTIME(h.horaInicio, '00:30:00')) AS temprano,
             asi.idAsistencia, asi.estado AS estadoAsistencia, asi.observacion
      FROM reserva r
      INNER JOIN horarioclase h ON h.idHorario = r.idHorario
      INNER JOIN diaclase c ON c.idClase = h.idClase
      LEFT JOIN asistencia asi ON asi.idReserva = r.idReserva
      WHERE r.idAlumno = ? AND r.fechaReserva = CURDATE() AND r.estado = 'proxima'
-       AND CURTIME() >= SUBTIME(h.horaInicio, '01:00:00') AND CURTIME() <= h.horaFin
-     ORDER BY h.horaInicio
-     LIMIT 1`,
+     ORDER BY h.horaInicio`,
     [alumno.idAlumno]
   );
-  if (!reservas.length) return errorResponse(res, noTiene, 'SIN_RESERVA', 404);
-  const reserva = reservas[0];
+  if (!reservasHoy.length) return errorResponse(res, noTiene, 'SIN_RESERVA', 404);
 
-  // Si ya quedó registrada (por el alumno en la app, por el check-in o por el profesor), no se vuelve a cargar
+  // Si hay más de una clase en ventana (clases seguidas), se registra la primera que todavía no tiene asistencia
+  const enVentana = reservasHoy.filter((r) => Number(r.enVentana) === 1);
+  if (!enVentana.length) {
+    const proxima = reservasHoy.find((r) => Number(r.temprano) === 1);
+    if (proxima) {
+      return errorResponse(res, `Tu clase de las ${proxima.horaInicio} se habilita para registrarte desde las ${proxima.desde}.`, 'FUERA_DE_HORARIO', 409);
+    }
+    return errorResponse(res, 'Tu clase de hoy ya terminó, así que no se puede registrar la asistencia. Consultá en la recepción.', 'FUERA_DE_HORARIO', 409);
+  }
+  const reserva = enVentana.find((r) => !r.idAsistencia) || enVentana[0];
+
+  // Si ya quedó registrada (por el check-in o por el profesor), no se vuelve a cargar
   if (!reserva.idAsistencia) {
     await db.query(
       "INSERT INTO asistencia (fecha, estado, observacion, idReserva) VALUES (CURDATE(), 'presente', 'checkin', ?)",
