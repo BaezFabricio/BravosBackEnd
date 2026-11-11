@@ -60,6 +60,7 @@ exports.getAll = asyncHandler(async (req, res) => {
     SELECT
       r.idRutina, r.nombre, r.descripcion, r.nivel, r.duracion, r.idProfesor,
       r.idClase, r.categoria, c.nombreClase,
+      (SELECT GROUP_CONCAT(DISTINCT DATE_FORMAT(h2.fechaEspecifica, '%Y-%m-%d') ORDER BY h2.fechaEspecifica SEPARATOR ',') FROM horarioclase h2 WHERE h2.idClase = r.idClase) AS fechasClase,
       CASE
         WHEN r.idClase IS NOT NULL THEN (
           SELECT COUNT(DISTINCT res.idAlumno)

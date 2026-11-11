@@ -42,6 +42,7 @@ exports.getMisClases = asyncHandler(async (req, res) => {
       c.estado,
       tc.nombre AS categoria,
       GROUP_CONCAT(h.dia ORDER BY FIELD(h.dia,'LUNES','MARTES','MIERCOLES','JUEVES','VIERNES','SABADO','DOMINGO') SEPARATOR ', ') AS dias,
+      (SELECT GROUP_CONCAT(DISTINCT DATE_FORMAT(h2.fechaEspecifica, '%Y-%m-%d') ORDER BY h2.fechaEspecifica SEPARATOR ',') FROM horarioclase h2 WHERE h2.idClase = c.idClase) AS fechas,
       MIN(h.horaInicio) AS horaInicio,
       MIN(h.horaFin) AS horaFin
     FROM diaclase c
@@ -107,7 +108,7 @@ exports.getHorariosPorClase = asyncHandler(async (req, res) => {
   const { idClase } = req.params;
 
   const [horarios] = await db.query(
-    'SELECT idHorario, dia, horaInicio, horaFin, turno FROM horarioclase WHERE idClase = ? ORDER BY FIELD(dia, "LUNES","MARTES","MIERCOLES","JUEVES","VIERNES","SABADO","DOMINGO"), horaInicio',
+    'SELECT idHorario, dia, horaInicio, horaFin, turno, DATE_FORMAT(fechaEspecifica, \'%Y-%m-%d\') AS fecha FROM horarioclase WHERE idClase = ? ORDER BY fechaEspecifica, horaInicio',
     [idClase]
   );
 
