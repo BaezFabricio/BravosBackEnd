@@ -23,22 +23,30 @@ function iaConfigurada() {
 async function generar({ system, usuario, maxTokens = 1024, temperatura = 0.4, timeoutMs = 20000 }) {
   const clave = process.env.GEMINI_API_KEY;
   if (!clave) throw new Error('GEMINI_API_KEY no configurada');
-  const modelo = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const modelo = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
 
   const cuerpo = {
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: 'user', parts: [{ text: usuario }] }],
     generationConfig: { temperature: temperatura, maxOutputTokens: maxTokens },
   };
-  // Los modelos 2.5 "piensan" antes de responder y eso gasta del tope de la respuesta: se apaga para respuestas de chat
-  if (/2\.5/.test(modelo)) cuerpo.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  // Estos modelos "piensan" antes de responder y eso gasta el tope de la respuesta (puede salir vacía): se apaga para el chat.
+  // Otros modelos pueden no aceptar este ajuste; se probó con 2.5 y 3.5.
+  if (/2\.5|3\.5/.test(modelo)) cuerpo.generationConfig.thinkingConfig = { thinkingBudget: 0 };
 
-  const respuesta = await fetch(`${BASE}/${encodeURIComponent(modelo)}:generateContent`, {
+  const pedir = () => fetch(`${BASE}/${encodeURIComponent(modelo)}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': clave },
     body: JSON.stringify(cuerpo),
     signal: AbortSignal.timeout(timeoutMs),
   });
+
+  let respuesta = await pedir();
+  // Google a veces responde "alta demanda" (503) o un límite momentáneo (429): se reintenta una vez
+  if (respuesta.status === 503 || respuesta.status === 429) {
+    await new Promise((r) => setTimeout(r, 1500));
+    respuesta = await pedir();
+  }
 
   if (!respuesta.ok) {
     // Solo el código: el cuerpo del error no se registra por si trae algo de la consulta

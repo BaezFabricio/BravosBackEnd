@@ -48,7 +48,7 @@ async function esDelTema(pregunta) {
       '¿Su pregunta tiene que ver con el gimnasio o con el uso del sistema (clases, reservas, créditos, membresías, pagos, ' +
       'rutinas, entrenamiento, horarios, ausencias o viajes que afectan sus clases, la app)?\n' +
       `Pregunta: «${pregunta}»`,
-    maxTokens: 5,
+    maxTokens: 16,
     temperatura: 0,
     timeoutMs: 8000,
   });
