@@ -24,6 +24,7 @@ const pushRoutes = require('./push.routes');
 const guiasRoutes = require('./guias.routes');
 const turnosRoutes = require('./turnos.routes');
 const tiposClaseRoutes = require('./tiposClase.routes');
+const bravoRoutes = require('./bravo.routes');
 
 const router = Router();
 
@@ -50,5 +51,6 @@ router.use('/push', pushRoutes);
 router.use('/guias', guiasRoutes);
 router.use('/turnos', turnosRoutes);
 router.use('/tipos-clase', tiposClaseRoutes);
+router.use('/bravo', bravoRoutes);
 
 module.exports = router;

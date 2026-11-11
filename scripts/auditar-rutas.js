@@ -55,6 +55,7 @@ const SOLO_AUTENTICADAS = {
   'POST /api/vv1/pagos/procesar-tarjeta': 'Procesa un pago propio',
   'GET /api/vv1/pagos/estado/:idPlan': 'Estado del propio pago',
   'GET /api/vv1/pagos/mi-plan': 'Membresía propia',
+  'POST /api/vv1/bravo/preguntar': 'Asistente de ayuda (Bravo/Milo): sesión + límite por persona; el controlador comprueba contra el perfil real que tenga permiso de panel alumno o admin, solo lee y los datos personales salen siempre del token',
   'GET /api/vv1/pagos/mi-historial': 'Historial de membresías propio',
   'POST /api/vv1/logros/sincronizar': 'Logros propios',
   'GET /api/vv1/profesores/mis-clases': 'Ver mis clases (el controlador exige ser profesor)',
