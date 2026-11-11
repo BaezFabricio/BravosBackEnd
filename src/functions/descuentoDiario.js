@@ -5,20 +5,16 @@ const db = require('../config/db');
  *   - Cada día de apertura se descuenta 1 crédito a cada alumno con plan activo, reserve o no.
  *   - Si el alumno reserva ese día, la reserva es el cobro de ese día (no se descuenta otro crédito).
  *   - Si cancela con 2 horas o más de anticipación, la reserva se devuelve y el día vuelve a cobrarse.
- *   - Domingos nunca se descuentan. Sábados: pendiente de definir (DESCUENTA_SABADO).
+ *   - Domingos nunca se descuentan. Los sábados solo se descuentan al plan Planificación Atleta (los demás planes no).
  *   - El plan con "créditos por semana" (x12 días) NO entra acá: sigue con su regla semanal.
  * Marca de cobro: tabla credito_dia (idCredito, fecha). Si existe, ese día ya tiene su crédito cobrado.
  * Reserva.cobroCredito = 1 si esa reserva es el cobro de su día; 0 si el día ya estaba cobrado.
  */
-const DESCUENTA_SABADO = false; // TODO: definir. Mientras tanto los sábados no se descuentan.
+// Los sábados solo cobran los planes cuyo nombre coincide con este patrón (decisión del box: solo Planificación Atleta)
+const PLAN_QUE_DESCUENTA_SABADO = '%planificaci%atleta%';
 
 const fechaDeHoy = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date()); // AAAA-MM-DD
-const esDiaDeApertura = (fecha) => {
-  const dia = new Date(`${fecha}T12:00:00`).getDay(); // 0 domingo, 6 sábado
-  if (dia === 0) return false;
-  if (dia === 6) return DESCUENTA_SABADO;
-  return true;
-};
+const diaDeSemana = (fecha) => new Date(`${fecha}T12:00:00`).getDay(); // 0 domingo, 6 sábado
 
 /** Crea lo que hace falta en la base (se puede llamar en cada arranque). */
 async function prepararDescuentoDiario() {
@@ -39,7 +35,9 @@ async function prepararDescuentoDiario() {
  */
 async function descontarDiaDeHoy() {
   const hoy = fechaDeHoy();
-  if (!esDiaDeApertura(hoy)) return 0;
+  const dia = diaDeSemana(hoy);
+  if (dia === 0) return 0; // domingo: nunca
+  const soloAtleta = dia === 6; // sábado: solo el plan Planificación Atleta
 
   const [creditos] = await db.query(`
     SELECT c.idCredito
@@ -48,10 +46,11 @@ async function descontarDiaDeHoy() {
       INNER JOIN plan pl ON pl.idPlan = p.idPlan
      WHERE c.estado = 'ACTIVO'
        AND pl.creditosPorSemana IS NULL
+       ${soloAtleta ? 'AND pl.nombre LIKE ?' : ''}
        AND c.creditosCisponibles > 0
        AND DATE_FORMAT(c.fechaInicio, '%Y-%m-%d') <= ?
        AND DATE_FORMAT(c.fechaVencimiento, '%Y-%m-%d') >= ?
-  `, [hoy, hoy]);
+  `, soloAtleta ? [PLAN_QUE_DESCUENTA_SABADO, hoy, hoy] : [hoy, hoy]);
 
   let descontados = 0;
   for (const c of creditos) {
@@ -90,4 +89,4 @@ function iniciarCronDescuentoDiario() {
   console.log('[Cron] Cron de descuento diario iniciado (cada 1 h)');
 }
 
-module.exports = { prepararDescuentoDiario, descontarDiaDeHoy, iniciarCronDescuentoDiario, DESCUENTA_SABADO };
+module.exports = { prepararDescuentoDiario, descontarDiaDeHoy, iniciarCronDescuentoDiario };
