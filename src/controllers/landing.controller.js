@@ -80,7 +80,8 @@ const actualizarConfiguracion = async (req, res) => {
       if (req.files && req.files[campo]) {
         // Configuración de transformaciones por tipo de imagen
         const transformacionHero = { width: 1920, height: 1080, crop: 'fill', gravity: 'auto', quality: 'auto', fetch_format: 'auto', resource_type: 'auto' };
-        const transformacionCard = { width: 800, height: 1000, crop: 'fill', gravity: 'auto', quality: 'auto', fetch_format: 'auto', resource_type: 'auto' };
+        // Las tarjetas se recortan a cuadrado en el panel (RecortarFoto), así que acá no se vuelve a recortar
+        const transformacionCard = { width: 800, height: 800, crop: 'fill', gravity: 'auto', quality: 'auto', fetch_format: 'auto', resource_type: 'auto' };
         const transformaciones = {
           logo: { quality: 'auto', fetch_format: 'auto', resource_type: 'auto' },
           imagenHero1: transformacionHero,
