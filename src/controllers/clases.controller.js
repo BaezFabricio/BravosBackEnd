@@ -595,6 +595,28 @@ exports.delete = asyncHandler(async (req, res) => {
   return successResponse(res, 'Clase eliminada correctamente');
 });
 
+/**
+ * GET /api/clases/:id/asistentes
+ * Quiénes reservaron una clase y cómo terminó cada reserva (detalle de una clase realizada en el historial del administrador).
+ * Solo nombre y estado: no se devuelve ningún dato de contacto ni de identidad.
+ */
+exports.getAsistentes = asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return errorResponse(res, "La clase no es válida.", "VALIDATION_ERROR", 400);
+  const [filas] = await db.query(
+    `SELECT r.idReserva, per.nombrecompleto AS nombre, r.estado AS estadoReserva, asi.estado AS asistencia
+       FROM reserva r
+       INNER JOIN horarioclase h ON h.idHorario = r.idHorario
+       INNER JOIN alumno a ON a.idAlumno = r.idAlumno
+       INNER JOIN persona per ON per.idPersona = a.idPersona
+       LEFT JOIN asistencia asi ON asi.idReserva = r.idReserva
+      WHERE h.idClase = ?
+      ORDER BY per.nombrecompleto ASC`,
+    [id]
+  );
+  return successResponse(res, "Reservas de la clase", filas);
+});
+
 // EXPORTS SEGUROS Y UNIFICADOS
 module.exports = {
   getAll: exports.getAll,
@@ -602,6 +624,7 @@ module.exports = {
   getClasesParaMi: exports.getClasesParaMi,
   getTurnosResumen: exports.getTurnosResumen,
   getById: exports.getById,
+  getAsistentes: exports.getAsistentes,
   insert: exports.insert,
   update: exports.update,
   updateEstado: exports.updateEstado,

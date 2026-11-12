@@ -13,6 +13,8 @@ router.get('/turnos/resumen', authenticateToken, requirePermission('Clases', 'co
 // Rutas existentes corregidas y protegidas:
 router.get('/', authenticateToken, requirePermission('Clases', 'consulta'), clasesController.getAll);
 router.get('/:id', authenticateToken, requirePermission('Clases', 'consulta'), clasesController.getById);
+// Quiénes reservaron la clase: muestra nombres de alumnos, por eso pide también permiso de Reservas
+router.get('/:id/asistentes', authenticateToken, requirePermission('Clases', 'consulta'), requirePermission('Reservas', 'consulta'), clasesController.getAsistentes);
 router.post('/', authenticateToken, requirePermission('Clases', 'alta'), clasesController.insert);
 router.put('/:id', authenticateToken, requirePermission('Clases', 'modificacion'), clasesController.update);
 router.patch('/:id/estado', authenticateToken, requirePermission('Clases', 'modificacion'), clasesController.updateEstado);
