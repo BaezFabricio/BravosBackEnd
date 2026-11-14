@@ -96,7 +96,13 @@ exports.getMetrics = asyncHandler(async (req, res) => {
         per.nombrecompleto AS user,
         CONCAT('Reservó: ', dc.nombreClase) AS action,
         COALESCE(r.creadoEn, r.fechaReserva) AS fecha_orden,
-        'reservation' AS type
+        'reservation' AS type,
+        dc.nombreClase AS clase,
+        DATE_FORMAT(r.fechaReserva, '%Y-%m-%d') AS fechaClase,
+        hc.horaInicio AS horaClase,
+        NULL AS plan,
+        NULL AS metodo,
+        NULL AS importe
       FROM reserva r
       INNER JOIN alumno al ON r.idAlumno = al.idAlumno
       INNER JOIN persona per ON al.idPersona = per.idPersona
@@ -110,15 +116,26 @@ exports.getMetrics = asyncHandler(async (req, res) => {
         per.nombrecompleto AS user,
         CONCAT('Pago recibido: $', p.importe) AS action,
         p.fechaPago AS fecha_orden,
-        'payment' AS type
+        'payment' AS type,
+        NULL AS clase,
+        NULL AS fechaClase,
+        NULL AS horaClase,
+        pl.nombre AS plan,
+        p.formaPago AS metodo,
+        p.importe AS importe
       FROM pago p
       INNER JOIN alumno al ON p.idAlumno = al.idAlumno
       INNER JOIN persona per ON al.idPersona = per.idPersona
+      LEFT JOIN plan pl ON pl.idPlan = p.idPlan
       WHERE p.estadoPago = 'confirmado'
     )
     ORDER BY fecha_orden DESC
     LIMIT 10
   `);
+
+    const [[{ total: pagosPendientes }]] = await db.query("SELECT COUNT(*) AS total FROM pago WHERE estadoPago = 'pendiente'");
+    const [[{ total: documentosPorRevisar }]] = await db.query("SELECT COUNT(*) AS total FROM documento_alumno WHERE estado = 'pendiente'");
+    const [[{ total: cuentasSinVerificar }]] = await db.query("SELECT COUNT(*) AS total FROM usuario WHERE correo_verificado = 0 AND contrasena IS NOT NULL");
 
     return successResponse(res, 'Métricas completas procesadas correctamente', {
       tarjetas: {
@@ -129,7 +146,13 @@ exports.getMetrics = asyncHandler(async (req, res) => {
       },
       suspendedUsers: suspendedListRows,
       clasesDeHoy,
-      recentActivity: activityRows
+      recentActivity: activityRows,
+      // Lo que requiere atención (datos reales de la base)
+      atencion: {
+        pagosPendientes: pagosPendientes,
+        documentosPorRevisar: documentosPorRevisar,
+        cuentasSinVerificar: cuentasSinVerificar
+      }
     });
 
   } catch (sqlError) {

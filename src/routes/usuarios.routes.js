@@ -110,6 +110,11 @@ router.put('/:id/avatar', authenticateToken, allowSelfOrPermission('Usuarios', '
  * Cambia el estado de un usuario (solo admin)
  */
 router.put('/:id/estado', authenticateToken, requirePermission('usuarios', 'modificacion'), usuariosController.cambiarEstado);
+router.get('/:id/ficha', authenticateToken, requirePermission('usuarios', 'consulta'), usuariosController.getFicha);
+router.put('/:id/datos-ficha', authenticateToken, requirePermission('usuarios', 'modificacion'), usuariosController.guardarDatosFicha);
+router.post('/:id/notas', authenticateToken, requirePermission('usuarios', 'modificacion'), usuariosController.agregarNota);
+router.get('/:id/pagos', authenticateToken, requirePermission('usuarios', 'consulta'), usuariosController.getPagos);
+router.post('/:id/reenviar-verificacion', authenticateToken, requirePermission('usuarios', 'modificacion'), usuariosController.reenviarVerificacionAdmin);
 
 /**
  * DELETE /api/usuarios/:id

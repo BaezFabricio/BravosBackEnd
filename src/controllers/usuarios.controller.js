@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { tienePermiso } = require('../middlewares/permissions.middleware');
 const db = require('../config/db');
 const { crearNotificacion, crearNotificacionAdmins, getIdUsuarioPorCredito } = require('../functions/notificacion.service');
@@ -12,6 +13,7 @@ const { asyncHandler } = require('../utils/helpers');
 const { limpiarDataUri } = require('../utils/imagenes');
 const { successResponse, errorResponse } = require('../utils/response');
 const { hashPassword } = require('../functions/encryption');
+const { sendVerificationEmail } = require('../functions/email.service');
 const { problemaContrasena } = require('../functions/recuperacion');
 const { esSuperAdmin, puedeAsignarPerfil } = require('../functions/escalada');
 const { invalidarSesiones, olvidarVersion } = require('../functions/versionSesion');
@@ -103,6 +105,7 @@ exports.getAll = asyncHandler(async (req, res) => {
       u.idPerfil,
       u.estado, -- Mantiene el estado del usuario base (Activo/Suspendido)
       (u.contrasena IS NULL) AS sinAcceso, -- alumno cargado por el administrador, sin cuenta para entrar al sistema
+      (u.correo_verificado = 1) AS correoVerificado, -- false = la cuenta todavía no confirmó su correo
       p.nombrecompleto,
       p.dni,
       p.correo,
@@ -116,7 +119,9 @@ exports.getAll = asyncHandler(async (req, res) => {
         WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND CURDATE() >= DATE_FORMAT(c.fechaVencimiento, '%Y-%m-01') AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'por_vencer'
         WHEN SUM(CASE WHEN c.estado = 'ACTIVO' AND c.fechaVencimiento >= CURDATE() AND c.creditosCisponibles > 0 THEN 1 ELSE 0 END) > 0 THEN 'activa'
         ELSE 'vencida'
-      END AS membresia
+      END AS membresia,
+      -- Fecha de vencimiento de su crédito más reciente (para "Vence el…" / "Venció el…")
+      MAX(c.fechaVencimiento) AS fechaVencimiento
     FROM usuario u
     INNER JOIN persona p ON u.idPersona = p.idPersona
     LEFT JOIN perfil perf ON u.idPerfil = perf.idPerfil
@@ -1180,3 +1185,230 @@ exports.aprobarAbono = asyncHandler(async (req, res) => {
 
 // Exportación centralizada limpia
 module.exports = exports;
+
+/*
+ * POST /api/vv1/usuarios/:id/reenviar-verificacion
+ * El administrador reenvía el enlace de verificación al correo que la cuenta ya tiene registrado (nunca a otro).
+ * Solo aplica a cuentas con contraseña (las cargadas "sin cuenta" se activan con "olvidé mi contraseña").
+ */
+exports.reenviarVerificacionAdmin = asyncHandler(async (req, res) => {
+  const idUsuario = Number(req.params.id) || 0;
+  const [filas] = await db.query(
+    `SELECT u.idUsuario, u.correo_verificado, u.contrasena, p.correo, p.nombrecompleto
+       FROM usuario u INNER JOIN persona p ON p.idPersona = u.idPersona
+      WHERE u.idUsuario = ?`,
+    [idUsuario]
+  );
+  const cuenta = filas[0];
+  if (!cuenta) return errorResponse(res, 'No encontramos ese usuario.', 'NOT_FOUND', 404);
+  if (!cuenta.contrasena) return errorResponse(res, 'Este alumno todavía no tiene cuenta: tiene que crear su contraseña desde "Olvidé mi contraseña".', 'SIN_CUENTA', 409);
+  if (Number(cuenta.correo_verificado) === 1) return errorResponse(res, 'El correo de esta cuenta ya está verificado.', 'YA_VERIFICADO', 409);
+  if (!cuenta.correo) return errorResponse(res, 'El usuario no tiene un correo registrado.', 'SIN_CORREO', 409);
+
+  const token = crypto.randomBytes(32).toString('hex');
+  await db.query('UPDATE usuario SET token_verificacion = ? WHERE idUsuario = ?', [token, idUsuario]);
+  await sendVerificationEmail(cuenta.correo, cuenta.nombrecompleto, token);
+  return successResponse(res, 'Reenviamos el correo de verificación.', null, 200);
+});
+
+/*
+ * GET /api/vv1/usuarios/:id/ficha
+ * Datos de la ficha completa (pantalla 05). Todo sale de la base: lo que no existe en el sistema no se devuelve.
+ *  - asistenciaMes: clases asistidas (completada) y ausencias (inasistencia) del mes en curso.
+ *  - racha: semanas seguidas (de lunes a domingo) con al menos una clase asistida, contando desde esta semana
+ *    (o desde la anterior si esta todavía no tiene).
+ *  - documentos: cuántos de los tres tipos están aprobados y cuántos pendientes de revisar.
+ *  - ultimoPago: el último pago confirmado. vigente: el crédito activo que todavía no venció.
+ */
+exports.getFicha = asyncHandler(async (req, res) => {
+  const idUsuario = Number(req.params.id) || 0;
+  const [filas] = await db.query(
+    `SELECT u.idUsuario, p.idPersona, a.idAlumno, DATE_FORMAT(a.fechaAlta, '%Y-%m-%d') AS alumnoDesde, a.tipoAlumno,
+            DATE_FORMAT(p.fechaNacimiento, '%Y-%m-%d') AS fechaNacimiento, p.contactoEmergencia, p.telefonoEmergencia
+       FROM usuario u
+       INNER JOIN persona p ON p.idPersona = u.idPersona
+       LEFT JOIN alumno a ON a.idPersona = p.idPersona
+      WHERE u.idUsuario = ?`,
+    [idUsuario]
+  );
+  if (!filas.length) return errorResponse(res, 'Usuario no encontrado', 'USER_NOT_FOUND', 404);
+  const base = filas[0];
+  const datosPersona = { fechaNacimiento: base.fechaNacimiento, contactoEmergencia: base.contactoEmergencia, telefonoEmergencia: base.telefonoEmergencia };
+  if (!base.idAlumno) return successResponse(res, 'Ficha obtenida correctamente', { esAlumno: false, datosPersona, notas: [] }, 200);
+  const idAlumno = base.idAlumno;
+
+  const [notas] = await db.query(
+    `SELECT n.idNota, n.texto, DATE_FORMAT(n.creadoEn, '%Y-%m-%d %H:%i') AS creadoEn
+       FROM alumno_nota n
+      WHERE n.idAlumno = ?
+      ORDER BY n.creadoEn DESC, n.idNota DESC
+      LIMIT 50`,
+    [idAlumno]
+  );
+
+  const [mes] = await db.query(
+    `SELECT SUM(r.estado = 'completada') AS asistidas, SUM(r.estado = 'inasistencia') AS ausencias
+       FROM reserva r
+      WHERE r.idAlumno = ?
+        AND r.fechaReserva >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+        AND r.fechaReserva <= CURDATE()`,
+    [idAlumno]
+  );
+
+  const [asistidas] = await db.query(
+    `SELECT DISTINCT DATE_FORMAT(r.fechaReserva, '%Y-%m-%d') AS dia
+       FROM reserva r
+      WHERE r.idAlumno = ? AND r.estado = 'completada'`,
+    [idAlumno]
+  );
+
+  const [docs] = await db.query(
+    `SELECT SUM(d.estado = 'aprobado') AS aprobados, SUM(d.estado = 'pendiente') AS pendientes
+       FROM documento_alumno d
+      WHERE d.idPersona = ?`,
+    [base.idPersona]
+  );
+
+  const [pagos] = await db.query(
+    `SELECT pg.importe, pg.formaPago, DATE_FORMAT(pg.fechaPago, '%Y-%m-%d') AS fecha
+       FROM pago pg
+      WHERE pg.idAlumno = ? AND pg.estadoPago = 'confirmado'
+      ORDER BY pg.fechaPago DESC, pg.idPago DESC
+      LIMIT 1`,
+    [idAlumno]
+  );
+
+  const [vigentes] = await db.query(
+    `SELECT cr.creditosCisponibles AS creditos, cr.totalCreditos, DATE_FORMAT(cr.fechaVencimiento, '%Y-%m-%d') AS vencimiento,
+            DATE_FORMAT(cr.fechaInicio, '%Y-%m-%d') AS inicio,
+            DATEDIFF(cr.fechaVencimiento, CURDATE()) AS diasRestantes, pl.nombre AS plan
+       FROM credito cr
+       LEFT JOIN pago pg ON pg.idPago = cr.idPago
+       LEFT JOIN plan pl ON pl.idPlan = pg.idPlan
+      WHERE cr.idAlumno = ? AND cr.estado = 'ACTIVO' AND cr.fechaVencimiento >= CURDATE()
+      ORDER BY cr.fechaVencimiento DESC
+      LIMIT 1`,
+    [idAlumno]
+  );
+
+  // Racha: semanas (lunes a domingo) seguidas con clase asistida
+  const lunesDe = (iso) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    const f = new Date(y, m - 1, d);
+    const diaSemana = (f.getDay() + 6) % 7; // lunes = 0
+    f.setDate(f.getDate() - diaSemana);
+    return `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, "0")}-${String(f.getDate()).padStart(2, "0")}`;
+  };
+  const semanas = new Set(asistidas.map((r) => lunesDe(r.dia)));
+  const hoy = new Date();
+  const hoyIso = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+  let cursor = lunesDe(hoyIso);
+  if (!semanas.has(cursor)) {
+    const [y, m, d] = cursor.split("-").map(Number);
+    const anterior = new Date(y, m - 1, d - 7);
+    cursor = `${anterior.getFullYear()}-${String(anterior.getMonth() + 1).padStart(2, "0")}-${String(anterior.getDate()).padStart(2, "0")}`;
+  }
+  let racha = 0;
+  while (semanas.has(cursor)) {
+    racha++;
+    const [y, m, d] = cursor.split("-").map(Number);
+    const previa = new Date(y, m - 1, d - 7);
+    cursor = `${previa.getFullYear()}-${String(previa.getMonth() + 1).padStart(2, "0")}-${String(previa.getDate()).padStart(2, "0")}`;
+  }
+
+  const m = mes[0] || {};
+  const dc = docs[0] || {};
+  return successResponse(res, 'Ficha obtenida correctamente', {
+    esAlumno: true,
+    tipoAlumno: base.tipoAlumno,
+    datosPersona,
+    notas,
+    alumnoDesde: base.alumnoDesde,
+    asistenciaMes: { asistidas: Number(m.asistidas) || 0, ausencias: Number(m.ausencias) || 0 },
+    racha,
+    documentos: { aprobados: Number(dc.aprobados) || 0, pendientes: Number(dc.pendientes) || 0, total: 3 },
+    ultimoPago: pagos[0] ? { importe: Number(pagos[0].importe), formaPago: pagos[0].formaPago, fecha: pagos[0].fecha } : null,
+    vigente: vigentes[0] ? { creditos: Number(vigentes[0].creditos) || 0, totalCreditos: Number(vigentes[0].totalCreditos) || 0, inicio: vigentes[0].inicio, vencimiento: vigentes[0].vencimiento, diasRestantes: Number(vigentes[0].diasRestantes) || 0, plan: vigentes[0].plan || null } : null,
+  }, 200);
+});
+
+// Fecha de hoy en la hora local del servidor (AAAA-MM-DD)
+const hoyLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+/*
+ * PUT /api/vv1/usuarios/:id/datos-ficha
+ * Fecha de nacimiento y contacto de emergencia. Vacío = sin dato.
+ */
+exports.guardarDatosFicha = asyncHandler(async (req, res) => {
+  const idUsuario = Number(req.params.id) || 0;
+  const { fechaNacimiento, contactoEmergencia, telefonoEmergencia } = req.body || {};
+  const [filas] = await db.query(
+    'SELECT p.idPersona FROM usuario u INNER JOIN persona p ON p.idPersona = u.idPersona WHERE u.idUsuario = ?',
+    [idUsuario]
+  );
+  if (!filas.length) return errorResponse(res, 'Usuario no encontrado', 'USER_NOT_FOUND', 404);
+
+  let nacimiento = null;
+  if (fechaNacimiento) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fechaNacimiento))) return errorResponse(res, 'La fecha de nacimiento no es válida.', 'INVALID_DATE', 400);
+    if (String(fechaNacimiento) > hoyLocal()) return errorResponse(res, 'La fecha de nacimiento no puede ser futura.', 'INVALID_DATE', 400);
+    nacimiento = String(fechaNacimiento);
+  }
+  const limpio = (v, max) => {
+    if (v === undefined || v === null) return null;
+    const t = String(v).trim();
+    return t === '' ? null : t.slice(0, max);
+  };
+  await db.query(
+    'UPDATE persona SET fechaNacimiento = ?, contactoEmergencia = ?, telefonoEmergencia = ? WHERE idPersona = ?',
+    [nacimiento, limpio(contactoEmergencia, 100), limpio(telefonoEmergencia, 30), filas[0].idPersona]
+  );
+  return successResponse(res, 'Datos de la ficha guardados', null, 200);
+});
+
+/*
+ * POST /api/vv1/usuarios/:id/notas
+ * Nota interna del administrador sobre el alumno (solo alumnos tienen ficha con notas).
+ */
+exports.agregarNota = asyncHandler(async (req, res) => {
+  const idUsuario = Number(req.params.id) || 0;
+  const texto = String((req.body || {}).texto ?? '').trim();
+  if (!texto) return errorResponse(res, 'Escribí la nota.', 'MISSING_TEXT', 400);
+  if (texto.length > 1000) return errorResponse(res, 'La nota no puede tener más de 1000 caracteres.', 'TEXT_TOO_LONG', 400);
+  const [alumnos] = await db.query(
+    'SELECT a.idAlumno FROM usuario u INNER JOIN alumno a ON a.idPersona = u.idPersona WHERE u.idUsuario = ?',
+    [idUsuario]
+  );
+  if (!alumnos.length) return errorResponse(res, 'Solo se pueden dejar notas en la ficha de un alumno.', 'NO_ALUMNO', 409);
+  await db.query(
+    'INSERT INTO alumno_nota (idAlumno, texto, idUsuarioAutor) VALUES (?, ?, ?)',
+    [alumnos[0].idAlumno, texto, req.user?.idUsuario ?? null]
+  );
+  return successResponse(res, 'Nota guardada', null, 201);
+});
+
+/*
+ * GET /api/vv1/usuarios/:id/pagos
+ * Abonos cargados al alumno, del más reciente al más antiguo (pestaña Abonos de la ficha).
+ */
+exports.getPagos = asyncHandler(async (req, res) => {
+  const idUsuario = Number(req.params.id) || 0;
+  const [pagos] = await db.query(
+    `SELECT pg.idPago, pg.importe, pg.formaPago, pg.estadoPago,
+            DATE_FORMAT(pg.fechaPago, '%Y-%m-%d') AS fecha,
+            DATE_FORMAT(pg.fechaVencimiento, '%Y-%m-%d') AS vencimiento,
+            pl.nombre AS plan
+       FROM usuario u
+       INNER JOIN alumno a ON a.idPersona = u.idPersona
+       INNER JOIN pago pg ON pg.idAlumno = a.idAlumno
+       LEFT JOIN plan pl ON pl.idPlan = pg.idPlan
+      WHERE u.idUsuario = ?
+      ORDER BY pg.fechaPago DESC, pg.idPago DESC
+      LIMIT 100`,
+    [idUsuario]
+  );
+  return successResponse(res, 'Abonos obtenidos correctamente', pagos, 200);
+});

@@ -111,11 +111,12 @@ const limpiarNombre = (v) => String(v || '').trim().replace(/\s+/g, ' ').slice(0
 exports.listarCatalogo = asyncHandler(async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const [rows] = await db.query(
-    `SELECT c.idCatalogo, c.nombre, c.tipoMarca, COUNT(m.idMarca) AS marcas
+    `SELECT c.idCatalogo, c.nombre, c.tipoMarca, COUNT(m.idMarca) AS marcas,
+            CASE WHEN c.tipoMarca = 'tiempo' THEN MIN(m.valorMejor) ELSE MAX(m.valorMejor) END AS mejorValor
      FROM catalogo_ejercicio c LEFT JOIN marca_personal m ON m.idCatalogo = c.idCatalogo
      WHERE c.idAlumno IS NULL GROUP BY c.idCatalogo, c.nombre, c.tipoMarca ORDER BY c.nombre ASC`
   );
-  return successResponse(res, 'Catálogo', rows.map((r) => ({ ...r, marcas: Number(r.marcas) })));
+  return successResponse(res, 'Catálogo', rows.map((r) => ({ ...r, marcas: Number(r.marcas), mejorValor: r.mejorValor === null ? null : Number(r.mejorValor) })));
 });
 
 /** POST /marcas/catalogo { nombre, tipoMarca } */
