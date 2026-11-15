@@ -547,7 +547,7 @@ exports.miPlan = asyncHandler(async (req, res) => {
 
   // Fecha en que venció la última membresía (para "Tu membresía venció el …" cuando no hay vigente)
   const [ultimoVenc] = await db.query(
-    `SELECT DATE_FORMAT(MAX(c.fechaVencimiento), %Y-%m-%d) AS fecha
+    `SELECT DATE_FORMAT(MAX(c.fechaVencimiento), '%Y-%m-%d') AS fecha
      FROM credito c
      INNER JOIN alumno a ON c.idAlumno = a.idAlumno
      INNER JOIN usuario u ON a.idPersona = u.idPersona
