@@ -776,7 +776,13 @@ exports.getAllAbonos = asyncHandler(async (req, res) => {
       c.estado,
       p.formaPago AS metodoPago,
       p.importe AS importe,
-      pPers.nombrecompleto AS operadorReal
+      pPers.nombrecompleto AS operadorReal,
+      (SELECT GROUP_CONCAT(DISTINCT TIME_FORMAT(h.horaInicio, '%H:%i') ORDER BY TIME_FORMAT(h.horaInicio, '%H:%i') SEPARATOR ',')
+         FROM reserva r
+         INNER JOIN horarioclase h ON r.idHorario = h.idHorario
+        WHERE r.idAlumno = c.idAlumno
+          AND r.estado = 'proxima'
+          AND (r.fechaReserva > CURDATE() OR (r.fechaReserva = CURDATE() AND h.horaFin > CURTIME()))) AS horas
      FROM credito c
      INNER JOIN pago p ON c.idPago = p.idPago
      INNER JOIN plan pl ON p.idPlan = pl.idPlan
@@ -787,7 +793,9 @@ exports.getAllAbonos = asyncHandler(async (req, res) => {
      LEFT JOIN persona pPers ON pUsu.idPersona = pPers.idPersona
      ORDER BY c.idCredito DESC`
   );
-  return successResponse(res, 'Abonos obtenidos correctamente', abonos);
+  // Horas de las clases próximas del alumno, como lista, para el filtro de horario
+  const conHoras = abonos.map((a) => ({ ...a, horas: a.horas ? a.horas.split(',') : [] }));
+  return successResponse(res, 'Abonos obtenidos correctamente', conHoras);
 });
 
 exports.createAbonoUsuario = asyncHandler(async (req, res) => {
