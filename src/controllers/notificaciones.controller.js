@@ -18,10 +18,10 @@ exports.getMias = asyncHandler(async (req, res) => {
   const [rows] = await db.query(
     `SELECT idNotificacion, tipo, titulo, mensaje, link, leida, creadoEn
      FROM notificacion
-     WHERE idUsuario = ?
+     WHERE idUsuario = ? AND (LEFT(tipo, 9) = 'profesor_') = ?
      ORDER BY creadoEn DESC
      LIMIT 50`,
-    [idUsuario]
+    [idUsuario, req.query.tipos === 'profesor' ? 1 : 0]
   );
 
   const noLeidas = rows.filter(n => !n.leida).length;
@@ -53,8 +53,8 @@ exports.marcarTodasLeidas = asyncHandler(async (req, res) => {
   const idUsuario = req.user.idUsuario;
 
   await db.query(
-    'UPDATE notificacion SET leida = 1 WHERE idUsuario = ? AND leida = 0',
-    [idUsuario]
+    "UPDATE notificacion SET leida = 1 WHERE idUsuario = ? AND leida = 0 AND (LEFT(tipo, 9) = 'profesor_') = ?",
+    [idUsuario, req.query.tipos === 'profesor' ? 1 : 0]
   );
 
   return successResponse(res, 'Todas las notificaciones marcadas como leídas');

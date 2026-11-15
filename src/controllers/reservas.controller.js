@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { avisarProfesorDeClase, TIPOS } = require('../functions/avisosProfesor');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
 const { crearNotificacion, getIdUsuarioPorReserva } = require('../functions/notificacion.service');
@@ -231,6 +232,8 @@ exports.crearReserva = asyncHandler(async (req, res) => {
       `Tu reserva para "${clase.nombreClase}" el ${fechaReserva} fue confirmada. ${cobra ? 'Se descontó 1 crédito.' : 'Ese día ya tenía su crédito descontado.'}`,
       '/alumno/reservas'
     );
+
+    avisarProfesorDeClase(clase.idClase, TIPOS.reserva, 'Nueva reserva', `Se reservó "${clase.nombreClase}" el ${fechaReserva}.`, `/profesor?fecha=${fechaReserva}`);
 
     return successResponse(res, '¡Reserva confirmada con éxito!', {
       idReserva,

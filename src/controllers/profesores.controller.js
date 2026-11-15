@@ -3,6 +3,7 @@ const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
 const { tienePermiso } = require('../middlewares/permissions.middleware');
 const { crearNotificacion, getIdUsuarioPorReserva } = require('../functions/notificacion.service');
+const { avisarProfesorDeClase, TIPOS } = require('../functions/avisosProfesor');
 
 // Importaciones de tus archivos de datos
 const obtenerProfesoresActivos = require('../data/Profesores/ObtenerProfesoresActivos');
@@ -145,7 +146,7 @@ exports.marcarAsistencia = asyncHandler(async (req, res) => {
 
   // Validamos que la reserva exista y tomamos su fecha como fecha de asistencia
   const [reservaRows] = await db.query(
-    'SELECT r.idReserva, r.fechaReserva, h.idClase FROM reserva r INNER JOIN horarioclase h ON r.idHorario = h.idHorario WHERE r.idReserva = ?',
+    "SELECT r.idReserva, r.fechaReserva, DATE_FORMAT(r.fechaReserva, '%Y-%m-%d') AS fechaTxt, h.idClase, h.idHorario FROM reserva r INNER JOIN horarioclase h ON r.idHorario = h.idHorario WHERE r.idReserva = ?",
     [idReserva]
   );
 
@@ -175,6 +176,16 @@ exports.marcarAsistencia = asyncHandler(async (req, res) => {
       'INSERT INTO asistencia (fecha, estado, observacion, idReserva) VALUES (?, ?, ?, ?)',
       [fecha, estado, observacion || null, idReserva]
     );
+  }
+
+  // Lista completa (ninguna reserva de esa clase y día sin marcar): un solo aviso al profesor
+  const [[pendientes]] = await db.query(
+    "SELECT COUNT(*) AS n FROM reserva r LEFT JOIN asistencia a ON a.idReserva = r.idReserva WHERE r.idHorario = ? AND r.fechaReserva = ? AND r.estado = 'proxima' AND a.idAsistencia IS NULL",
+    [reservaRows[0].idHorario, reservaRows[0].fechaReserva]
+  );
+  if (pendientes.n === 0) {
+    const { idClase, idHorario, fechaTxt } = reservaRows[0];
+    avisarProfesorDeClase(idClase, TIPOS.listaGuardada, 'Lista guardada', `Guardaste la lista de la clase del ${fechaTxt}.`, `/profesor?clase=${idClase}-${idHorario}-${fechaTxt}`, true);
   }
 
   const idUsuarioAlumno = await getIdUsuarioPorReserva(idReserva);

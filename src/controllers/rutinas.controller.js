@@ -2,7 +2,8 @@ const db = require('../config/db');
 const obtenerAlumnosActivos = require('../data/Alumno/ObtenerAlumnosActivos');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
-const { crearNotificacion } = require('../functions/notificacion.service');
+const { crearNotificacion, getIdUsuarioPorProfesor } = require('../functions/notificacion.service');
+const { TIPOS } = require('../functions/avisosProfesor');
 
 /**
  * Reemplaza por completo los ejercicios de una rutina (borra e inserta de nuevo).
@@ -221,6 +222,12 @@ exports.update = asyncHandler(async (req, res) => {
   }
 
   await syncEjercicios(id, ejercicios);
+
+  // El administrador cambió una rutina de un profesor: se avisa a ese profesor
+  if (esAdmin && rutinaRows[0].idProfesor && Number(rutinaRows[0].idProfesor) !== Number(req.user?.idProfesor)) {
+    const idUsuarioProf = await getIdUsuarioPorProfesor(rutinaRows[0].idProfesor);
+    if (idUsuarioProf) crearNotificacion(idUsuarioProf, TIPOS.rutina, 'Rutina actualizada', `El administrador actualizó la rutina "${nombre || rutinaRows[0].nombre}".`, `/profesor/rutinas/${id}`);
+  }
 
   return successResponse(res, 'Rutina actualizada correctamente', {
     idRutina: Number(id), nombre, descripcion, nivel, duracion, categoria
