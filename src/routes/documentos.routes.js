@@ -33,6 +33,10 @@ router.get('/mis-documentos', authenticateToken, documentosController.misDocumen
 // Admin ve documentos de cualquier usuario
 router.get('/usuario/:id', authenticateToken, requirePermission('Usuarios', 'consulta'), documentosController.documentosPorUsuario);
 
+// Admin adjunta un comprobante a la cuenta de un alumno (al cargar un abono). El permiso va ANTES de la subida:
+// quien no puede modificar usuarios no llega a guardar ningún archivo.
+router.post('/usuario/:idUsuario/subir', authenticateToken, requirePermission('Usuarios', 'modificacion'), upload.single('archivo'), documentosController.subirComprobanteDeAlumno);
+
 // Admin aprueba un documento
 router.patch('/:id/aprobar', authenticateToken, requirePermission('Usuarios', 'modificacion'), documentosController.aprobarDocumento);
 

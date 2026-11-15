@@ -153,7 +153,7 @@ async function documentosPorUsuario(req, res) {
   try {
     const { id } = req.params;
     const [rows] = await db.query(
-      `SELECT d.* FROM documento_alumno d
+      `SELECT d.idDocumento, d.tipo, d.nombreArchivo, d.urlArchivo, d.estado, d.creadoEn FROM documento_alumno d
        JOIN usuario u ON u.idPersona = d.idPersona
        WHERE u.idUsuario = ?
        ORDER BY d.creadoEn DESC`,
@@ -185,4 +185,49 @@ async function aprobarDocumento(req, res) {
   }
 }
 
-module.exports = { subirDocumento, misDocumentos, documentosPorUsuario, aprobarDocumento };
+/**
+ * POST /documentos/usuario/:idUsuario/subir
+ * El admin adjunta un comprobante de transferencia a la cuenta de un alumno (al cargar un abono).
+ * La ruta exige permiso de modificar usuarios; el archivo se valida y se limpia igual que el del alumno.
+ */
+async function subirComprobanteDeAlumno(req, res) {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No se recibió ningún archivo.' });
+
+    try {
+      await limpiarDocumentoSubido(req.file);
+    } catch (error) {
+      descartarArchivo(req.file);
+      return res.status(400).json({ message: error.message || 'No se pudo procesar el archivo. Probá con una foto JPG, PNG o WebP, o un PDF.' });
+    }
+
+    const idUsuario = Number(req.params.idUsuario);
+    if (!Number.isInteger(idUsuario) || idUsuario <= 0) {
+      descartarArchivo(req.file);
+      return res.status(400).json({ message: 'Usuario inválido.' });
+    }
+
+    const [rows] = await db.query('SELECT idPersona FROM usuario WHERE idUsuario = ?', [idUsuario]);
+    if (!rows.length) { descartarArchivo(req.file); return res.status(404).json({ message: 'Usuario no encontrado.' }); }
+    const idPersona = rows[0].idPersona;
+
+    const urlArchivo = `/uploads/documentos/${req.file.filename}`;
+    const nombreArchivo = path.basename(String(req.file.originalname || 'comprobante')).slice(0, 120);
+
+    const [result] = await db.query(
+      `INSERT INTO documento_alumno (idPersona, tipo, nombreArchivo, urlArchivo) VALUES (?, 'comprobante_transferencia', ?, ?)`,
+      [idPersona, nombreArchivo, urlArchivo]
+    );
+
+    const [doc] = await db.query(
+      `SELECT idDocumento, tipo, nombreArchivo, urlArchivo, estado, creadoEn FROM documento_alumno WHERE idDocumento = ?`,
+      [result.insertId]
+    );
+    return res.status(201).json({ data: doc[0] });
+  } catch (err) {
+    console.error('[Documentos] Error al adjuntar comprobante:', err.message);
+    return res.status(500).json({ message: 'Error interno al adjuntar el comprobante.' });
+  }
+}
+
+module.exports = { subirDocumento, misDocumentos, documentosPorUsuario, aprobarDocumento, subirComprobanteDeAlumno };
