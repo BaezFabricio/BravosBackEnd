@@ -545,6 +545,15 @@ exports.miPlan = asyncHandler(async (req, res) => {
     [idUsuario]
   )
 
+  // Fecha en que venció la última membresía (para "Tu membresía venció el …" cuando no hay vigente)
+  const [ultimoVenc] = await db.query(
+    `SELECT DATE_FORMAT(MAX(c.fechaVencimiento), %Y-%m-%d) AS fecha
+     FROM credito c
+     INNER JOIN alumno a ON c.idAlumno = a.idAlumno
+     INNER JOIN usuario u ON a.idPersona = u.idPersona
+     WHERE u.idUsuario = ?`,
+    [idUsuario]
+  )
   const planes = vigentes.map(({ enMesDeVencimiento, ...v }) => ({
     ...v,
     precio: Number(v.precio),
@@ -560,6 +569,7 @@ exports.miPlan = asyncHandler(async (req, res) => {
     vigente: planes.length > 0,
     porVencer: planes.some((p) => p.porVencer),
     ultimoPlan: ultimo[0] ? { ...ultimo[0], precio: Number(ultimo[0].precio) } : null,
+    ultimoVencimiento: ultimoVenc[0]?.fecha ?? null,
   })
 })
 

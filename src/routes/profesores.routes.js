@@ -13,5 +13,6 @@ router.get('/clases/:idClase/horarios', authenticateToken, requirePermission('pr
 // Solo profesores: los alumnos ven la rutina de sus propias reservas con GET /reservas/:id/rutina
 router.get('/clases/:idClase/rutina', authenticateToken, requirePermission('profesor', 'consulta'), profesoresController.getRutinaPorClase);
 router.put('/asistencias/:idReserva', authenticateToken, requirePermission('profesor', 'modificacion'), profesoresController.marcarAsistencia);
+router.delete('/asistencias/:idReserva', authenticateToken, requirePermission('profesor', 'modificacion'), profesoresController.desmarcarAsistencia);
 
 module.exports = router;

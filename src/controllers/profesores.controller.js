@@ -196,3 +196,25 @@ exports.marcarAsistencia = asyncHandler(async (req, res) => {
     estado
   });
 });
+
+// Quitar la marca de asistencia (vuelve a "sin marcar"). Solo quien gestiona la clase.
+exports.desmarcarAsistencia = asyncHandler(async (req, res) => {
+  const { idReserva } = req.params;
+
+  const [reservaRows] = await db.query(
+    "SELECT r.idReserva, h.idClase FROM reserva r INNER JOIN horarioclase h ON r.idHorario = h.idHorario WHERE r.idReserva = ?",
+    [idReserva]
+  );
+
+  if (reservaRows.length === 0) {
+    return errorResponse(res, "La reserva indicada no existe.", "NOT_FOUND", 404);
+  }
+
+  if (!(await puedeGestionarClase(req, reservaRows[0].idClase))) {
+    return errorResponse(res, "No tenés permiso sobre esta clase.", "FORBIDDEN", 403);
+  }
+
+  await db.query("DELETE FROM asistencia WHERE idReserva = ?", [idReserva]);
+
+  return successResponse(res, "Asistencia quitada.", { idReserva: Number(idReserva) });
+});
