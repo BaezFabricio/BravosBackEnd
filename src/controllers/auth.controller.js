@@ -217,6 +217,10 @@ exports.login = asyncHandler(async (req, res) => {
     sv: Number(checkUser[0]?.sesion_version) || 0, // versión de sesión: cambia al cambiar la contraseña
   });
 
+  // Último inicio de sesión (regla de inactividad). Si la columna todavía no existe, el login sigue igual.
+  await db.query('UPDATE usuario SET ultimoAcceso = NOW() WHERE idUsuario = ?', [usuario.idUsuario])
+    .catch((e) => console.error('[ultimoAcceso]', e.sqlMessage || e.message));
+
   // 4. 🚀 Devolvemos la respuesta impecable al Frontend
   guardarSesion(res, token); // el token va solo en la cookie httpOnly, no en el cuerpo de la respuesta
   return successResponse(res, 'Sesión iniciada exitosamente', {

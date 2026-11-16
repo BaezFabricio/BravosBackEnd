@@ -21,6 +21,7 @@ const { prepararDescuentoDiario, iniciarCronDescuentoDiario } = require('./funct
 const { iniciarCronPublicacion } = require('./functions/publicacionCron');
 const { iniciarCronMembresias } = require('./functions/membresiasCron');
 const { iniciarAvisosProfesor } = require('./functions/avisosProfesor');
+const { iniciarCronInactividad } = require('./functions/inactividadCuentas');
 
 const logger = new Logger('Server');
 
@@ -91,6 +92,7 @@ async function inicializarBase() {
   iniciarCronPublicacion();
   iniciarCronMembresias();
   iniciarAvisosProfesor();
+  iniciarCronInactividad(); // pasa a inactivas las cuentas de alumnos sin uso hace 60 días
   iniciarCronCreditosSemanales(); // descuenta los créditos que sobraron en cada semana terminada
   iniciarCronDescuentoDiario(); // cobra el día de apertura a los planes sin cupo semanal
 }
