@@ -24,6 +24,7 @@ const obtenerClasesParaAlumno = `
     c.idGimnasio,
     c.idProfesor,
     per.nombrecompleto AS nombreProfesor,
+    ua_prof.url AS avatarProfesor,
     h.idHorario,
     h.dia,
     h.horaInicio,
@@ -35,6 +36,8 @@ const obtenerClasesParaAlumno = `
   LEFT JOIN tipo_clase tc ON tc.codigo = c.tipoPlan
   LEFT JOIN profesor p ON c.idProfesor = p.idProfesor
   LEFT JOIN persona per ON p.idPersona = per.idPersona
+  LEFT JOIN usuario u_prof ON u_prof.idPersona = per.idPersona
+  LEFT JOIN usuario_avatar ua_prof ON ua_prof.idUsuario = u_prof.idUsuario
   WHERE c.estado = 'Activo'
     AND (h.fechaEspecifica IS NULL OR h.fechaEspecifica >= CURDATE())
     AND (c.fechaPublicacion IS NULL OR c.fechaPublicacion <= NOW())

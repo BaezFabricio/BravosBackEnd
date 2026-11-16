@@ -279,7 +279,8 @@ exports.obtenerMisReservas = asyncHandler(async (req, res) => {
       c.idClase,
       c.nombreClase,
       c.tipoClase,
-      per_prof.nombrecompleto AS nombreProfesor
+      per_prof.nombrecompleto AS nombreProfesor,
+      ua_prof.url AS avatarProfesor
     FROM reserva r
     INNER JOIN alumno a ON r.idAlumno = a.idAlumno
     INNER JOIN usuario u ON a.idPersona = u.idPersona
@@ -287,6 +288,8 @@ exports.obtenerMisReservas = asyncHandler(async (req, res) => {
     INNER JOIN diaclase c ON h.idClase = c.idClase
     LEFT JOIN profesor prof ON c.idProfesor = prof.idProfesor
     LEFT JOIN persona per_prof ON prof.idPersona = per_prof.idPersona
+    LEFT JOIN usuario u_prof ON u_prof.idPersona = per_prof.idPersona
+    LEFT JOIN usuario_avatar ua_prof ON ua_prof.idUsuario = u_prof.idUsuario
     LEFT JOIN asistencia asi ON asi.idReserva = r.idReserva
     WHERE u.idUsuario = ?
     ORDER BY r.fechaReserva DESC, h.horaInicio DESC
@@ -355,7 +358,8 @@ exports.obtenerMisRutinas = asyncHandler(async (req, res) => {
             DATE_FORMAT(r.fechaReserva, '%Y-%m-%d') AS fecha,
             h.horaInicio, h.horaFin,
             c.idClase, c.nombreClase,
-            per.nombrecompleto AS nombreProfesor
+            per.nombrecompleto AS nombreProfesor,
+            ua_prof.url AS avatarProfesor
      FROM reserva r
      INNER JOIN alumno a ON r.idAlumno = a.idAlumno
      INNER JOIN usuario u ON a.idPersona = u.idPersona
@@ -363,6 +367,8 @@ exports.obtenerMisRutinas = asyncHandler(async (req, res) => {
      INNER JOIN diaclase c ON h.idClase = c.idClase
      LEFT JOIN profesor p ON c.idProfesor = p.idProfesor
      LEFT JOIN persona per ON p.idPersona = per.idPersona
+     LEFT JOIN usuario u_prof ON u_prof.idPersona = per.idPersona
+     LEFT JOIN usuario_avatar ua_prof ON ua_prof.idUsuario = u_prof.idUsuario
      WHERE u.idUsuario = ?
        AND r.estado = 'proxima'
        AND (r.fechaReserva > CURDATE() OR (r.fechaReserva = CURDATE() AND h.horaFin > CURTIME()))
@@ -426,7 +432,8 @@ exports.obtenerReservasDeUsuario = asyncHandler(async (req, res) => {
       h.horaInicio,
       h.horaFin,
       h.dia,
-      per_prof.nombrecompleto AS nombreProfesor
+      per_prof.nombrecompleto AS nombreProfesor,
+      ua_prof.url AS avatarProfesor
     FROM reserva r
     INNER JOIN alumno a ON r.idAlumno = a.idAlumno
     INNER JOIN usuario u ON a.idPersona = u.idPersona
@@ -434,6 +441,8 @@ exports.obtenerReservasDeUsuario = asyncHandler(async (req, res) => {
     INNER JOIN diaclase c ON h.idClase = c.idClase
     LEFT JOIN profesor prof ON c.idProfesor = prof.idProfesor
     LEFT JOIN persona per_prof ON prof.idPersona = per_prof.idPersona
+    LEFT JOIN usuario u_prof ON u_prof.idPersona = per_prof.idPersona
+    LEFT JOIN usuario_avatar ua_prof ON ua_prof.idUsuario = u_prof.idUsuario
     LEFT JOIN asistencia asi ON asi.idReserva = r.idReserva
     WHERE u.idUsuario = ?
     ORDER BY r.fechaReserva DESC, h.horaInicio DESC

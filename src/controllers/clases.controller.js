@@ -604,11 +604,13 @@ exports.getAsistentes = asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return errorResponse(res, "La clase no es válida.", "VALIDATION_ERROR", 400);
   const [filas] = await db.query(
-    `SELECT r.idReserva, per.nombrecompleto AS nombre, r.estado AS estadoReserva, asi.estado AS asistencia
+    `SELECT r.idReserva, per.nombrecompleto AS nombre, r.estado AS estadoReserva, asi.estado AS asistencia, ua.url AS avatarUrl
        FROM reserva r
        INNER JOIN horarioclase h ON h.idHorario = r.idHorario
        INNER JOIN alumno a ON a.idAlumno = r.idAlumno
        INNER JOIN persona per ON per.idPersona = a.idPersona
+       LEFT JOIN usuario u ON u.idPersona = per.idPersona
+       LEFT JOIN usuario_avatar ua ON ua.idUsuario = u.idUsuario
        LEFT JOIN asistencia asi ON asi.idReserva = r.idReserva
       WHERE h.idClase = ?
       ORDER BY per.nombrecompleto ASC`,

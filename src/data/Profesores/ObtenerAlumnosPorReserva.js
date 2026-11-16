@@ -2,10 +2,13 @@ const sql = `
   SELECT DISTINCT 
     a.idAlumno AS id, 
     p.nombrecompleto, 
-    r.estado AS asistencia
+    r.estado AS asistencia,
+    ua.url AS avatarUrl
 FROM reserva r
 INNER JOIN alumno a ON r.idAlumno = a.idAlumno
 INNER JOIN persona p ON a.idPersona = p.idPersona
+LEFT JOIN usuario u ON u.idPersona = p.idPersona
+LEFT JOIN usuario_avatar ua ON ua.idUsuario = u.idUsuario
 INNER JOIN horarioclase h ON r.idHorario = h.idHorario
 INNER JOIN diaclase c ON h.idClase = c.idClase
 WHERE c.idClase = ?              -- Filtra por la clase específica (la del Select)

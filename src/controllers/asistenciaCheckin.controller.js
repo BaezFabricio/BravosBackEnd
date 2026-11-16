@@ -159,13 +159,15 @@ exports.estado = asyncHandler(async (req, res) => {
 
   // Quién se registró hoy (nombre de pila y apellido, la clase y de dónde vino el registro)
   const [registrados] = await db.query(`
-    SELECT p.nombrecompleto, c.nombreClase, TIME_FORMAT(h.horaInicio, '%H:%i') AS inicio, a.observacion
+    SELECT p.nombrecompleto, c.nombreClase, TIME_FORMAT(h.horaInicio, '%H:%i') AS inicio, a.observacion, ua.url AS avatarUrl
     FROM asistencia a
     INNER JOIN reserva r ON r.idReserva = a.idReserva
     INNER JOIN horarioclase h ON h.idHorario = r.idHorario
     INNER JOIN diaclase c ON c.idClase = h.idClase
     INNER JOIN alumno al ON al.idAlumno = r.idAlumno
     INNER JOIN persona p ON p.idPersona = al.idPersona
+    LEFT JOIN usuario u ON u.idPersona = p.idPersona
+    LEFT JOIN usuario_avatar ua ON ua.idUsuario = u.idUsuario
     WHERE a.fecha = CURDATE() AND a.estado = 'presente'
     ORDER BY h.horaInicio, p.nombrecompleto
     LIMIT 200
@@ -192,7 +194,7 @@ exports.estado = asyncHandler(async (req, res) => {
       reservados: Number(c.reservados) || 0, registrados: Number(c.registrados) || 0,
     })),
     registrados: registrados.map((r) => ({
-      nombre: r.nombrecompleto, clase: r.nombreClase, inicio: r.inicio, origen: origen(r.observacion),
+      nombre: r.nombrecompleto, clase: r.nombreClase, inicio: r.inicio, origen: origen(r.observacion), avatarUrl: r.avatarUrl || null,
     })),
   });
 });
