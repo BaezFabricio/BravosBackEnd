@@ -135,6 +135,9 @@ exports.getMetrics = asyncHandler(async (req, res) => {
 
     const [[{ total: pagosPendientes }]] = await db.query("SELECT COUNT(*) AS total FROM pago WHERE estadoPago = 'pendiente'");
     const [[{ total: documentosPorRevisar }]] = await db.query("SELECT COUNT(*) AS total FROM documento_alumno WHERE estado = 'pendiente'");
+    // Si los documentos pendientes son de una sola persona, se manda su usuario para abrir directo su ficha
+    const [duenos] = await db.query("SELECT DISTINCT u.idUsuario FROM documento_alumno d JOIN usuario u ON u.idPersona = d.idPersona WHERE d.estado = 'pendiente' LIMIT 2");
+    const documentoDeUsuario = duenos.length === 1 ? duenos[0].idUsuario : null;
     const [[{ total: cuentasSinVerificar }]] = await db.query("SELECT COUNT(*) AS total FROM usuario WHERE correo_verificado = 0 AND contrasena IS NOT NULL");
 
     return successResponse(res, 'Métricas completas procesadas correctamente', {
@@ -151,6 +154,7 @@ exports.getMetrics = asyncHandler(async (req, res) => {
       atencion: {
         pagosPendientes: pagosPendientes,
         documentosPorRevisar: documentosPorRevisar,
+        documentoDeUsuario: documentoDeUsuario,
         cuentasSinVerificar: cuentasSinVerificar
       }
     });
