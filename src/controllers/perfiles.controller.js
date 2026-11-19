@@ -10,7 +10,7 @@ export const guardarPerfilCompleto = async (req, res) => {
   // con apenas el permiso de "alta")
   const isNew = req.method === "POST";
   const idPerfil = isNew ? null : Number(req.body.idPerfil);
-  const quien = req.user?.idPerfil;
+  const quien = req.user?.perfiles || []; // todos los perfiles de quien hace el pedido
 
   if (!isNew && (!Number.isInteger(idPerfil) || idPerfil <= 0)) {
     return res.status(400).json({ success: false, message: "Falta el perfil a modificar.", errorCode: "INVALID_ID" });
@@ -32,7 +32,7 @@ export const guardarPerfilCompleto = async (req, res) => {
   if (faltan.length) return prohibido(res, "No podés dar permisos que vos no tenés.");
   // Sobre el propio perfil se puede quitar o renombrar, pero no el permiso de editar perfiles:
   // si no, la persona se queda afuera sin querer
-  if (!isNew && idPerfil === Number(quien) && !pedidos.includes(clave("perfiles", "modificacion"))) {
+  if (!isNew && quien.includes(idPerfil) && !pedidos.includes(clave("perfiles", "modificacion"))) {
     return res.status(400).json({ success: false, message: "No podés quitarle a tu propio perfil el permiso de modificar perfiles.", errorCode: "SELF_LOCKOUT" });
   }
 
@@ -90,9 +90,16 @@ export const eliminarPerfil = async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ success: false, message: "Perfil inválido.", errorCode: "INVALID_ID" });
   if (id === ID_PERFIL_SUPERADMIN) return prohibido(res, "El perfil del administrador general no se puede eliminar.");
-  if (id === Number(req.user?.idPerfil)) return prohibido(res, "No podés eliminar tu propio perfil.");
-  // Si tiene usuarios, quedarían sin acceso: primero hay que pasarlos a otro perfil
-  const [[enUso]] = await connection.query("SELECT COUNT(*) AS total FROM usuario WHERE idPerfil = ?", [id]);
+  if ((req.user?.perfiles || []).includes(id)) return prohibido(res, "No podés eliminar tu propio perfil.");
+  // Si tiene usuarios (como principal o como perfil adicional), quedarían sin acceso: primero hay que quitárselo
+  const [[enUso]] = await connection.query(
+    `SELECT COUNT(*) AS total FROM (
+       SELECT idUsuario FROM usuario WHERE idPerfil = ?
+       UNION
+       SELECT idUsuario FROM usuario_perfil WHERE idPerfil = ?
+     ) AS en_uso`,
+    [id, id]
+  );
   if (Number(enUso.total) > 0) {
     return res.status(409).json({ success: false, message: `Este perfil tiene ${enUso.total} usuario(s). Pasalos a otro perfil antes de eliminarlo.`, errorCode: "PROFILE_IN_USE" });
   }
@@ -133,10 +140,14 @@ export const deleteModulo = async (req, res) => {
 export const obtenerPerfiles = async (req, res) => {
   try {
     const [perfilesRows] = await connection.query("SELECT * FROM perfil");
+    // Usuarios por perfil, contando también los perfiles adicionales (un usuario puede tener varios)
     const [usuariosPorPerfilRows] = await connection.query(
-      `SELECT u.idPerfil, COUNT(*) AS usuarios
-       FROM usuario u
-       GROUP BY u.idPerfil`
+      `SELECT idPerfil, COUNT(*) AS usuarios FROM (
+         SELECT DISTINCT idUsuario, idPerfil FROM usuario WHERE idPerfil IS NOT NULL
+         UNION
+         SELECT idUsuario, idPerfil FROM usuario_perfil
+       ) AS pares
+       GROUP BY idPerfil`
     );
 
     const usuariosPorPerfilMap = {}

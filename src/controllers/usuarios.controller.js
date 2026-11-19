@@ -15,7 +15,8 @@ const { successResponse, errorResponse } = require('../utils/response');
 const { hashPassword } = require('../functions/encryption');
 const { sendVerificationEmail } = require('../functions/email.service');
 const { problemaContrasena } = require('../functions/recuperacion');
-const { esSuperAdmin, puedeAsignarPerfil } = require('../functions/escalada');
+const { esSuperAdmin, aLista, puedeAsignarPerfil } = require('../functions/escalada');
+const { perfilesDeUsuario, perfilesDetalle } = require('../functions/perfilesUsuario');
 const { invalidarSesiones, olvidarVersion } = require('../functions/versionSesion');
 const { sendPagoConfirmadoEmail, sendBienvenidaSinCuentaEmail } = require('../functions/email.service');
 
@@ -45,7 +46,7 @@ async function rechazoSobreUsuario(req, usuario, accion) {
   if (Number(usuario.idUsuario) === Number(req.user?.idUsuario)) {
     return `No podés ${accion} tu propia cuenta.`;
   }
-  if (!(await puedeAsignarPerfil(req.user?.idPerfil, usuario.idPerfil))) {
+  if (!(await puedeAsignarPerfil(req.user?.perfiles, await perfilesDeUsuario(usuario.idUsuario)))) {
     return `No podés ${accion} a un usuario con más permisos que los tuyos.`;
   }
   return null;
@@ -68,18 +69,19 @@ const sanitizarFecha = (valor) => {
  * 🟢 HELPER INTERNO: Sincroniza de forma automática la tabla "profesor"
  * basándose en los permisos reales de su perfil asignado en la tabla "perfilpermiso"
  */
-const sincronizarFichaProfesor = async (connection, idPersona, idPerfil) => {
-  if (!idPerfil) return;
+const sincronizarFichaProfesor = async (connection, idPersona, perfiles) => {
+  const ids = aLista(perfiles);
+  if (ids.length === 0) return;
 
-  // Busca si el perfil tiene asignado cualquier permiso del módulo 'profesor'
+  // Busca si alguno de los perfiles tiene asignado cualquier permiso del módulo 'profesor'
   const queryPermiso = `
-    SELECT COUNT(*) AS tienePermiso 
+    SELECT COUNT(*) AS tienePermiso
     FROM perfilpermiso pp
     INNER JOIN permiso p ON pp.idPermiso = p.idPermiso
-    WHERE pp.idPerfil = ? AND p.modulo = 'profesor'
+    WHERE pp.idPerfil IN (?) AND p.modulo = 'profesor'
   `;
-  
-  const [permisoRows] = await connection.query(queryPermiso, [parseInt(idPerfil)]);
+
+  const [permisoRows] = await connection.query(queryPermiso, [ids]);
   const tieneAccesoACoach = permisoRows[0].tienePermiso > 0;
 
   if (tieneAccesoACoach) {
@@ -162,9 +164,27 @@ exports.getAll = asyncHandler(async (req, res) => {
     horasPorPersona.get(f.idPersona).push(f.hora);
   }
 
+  // Perfiles de cada usuario (puede tener más de uno): el de la lista y la ficha los necesitan para no perder ninguno al editar
+  const [perfilesRows] = await db.query(
+    `SELECT up.idUsuario, pf.idPerfil, pf.nombrePerfil
+       FROM (
+         SELECT idUsuario, idPerfil FROM usuario_perfil
+         UNION
+         SELECT idUsuario, idPerfil FROM usuario WHERE idPerfil IS NOT NULL
+       ) up
+       INNER JOIN perfil pf ON pf.idPerfil = up.idPerfil
+      ORDER BY pf.idPerfil`
+  );
+  const perfilesPorUsuario = new Map();
+  for (const f of perfilesRows) {
+    if (!perfilesPorUsuario.has(f.idUsuario)) perfilesPorUsuario.set(f.idUsuario, []);
+    perfilesPorUsuario.get(f.idUsuario).push({ idPerfil: Number(f.idPerfil), nombrePerfil: f.nombrePerfil });
+  }
+
   const usuarios = rows.map(({ idPersona, ...u }) => ({
     ...u,
     sinAcceso: Boolean(u.sinAcceso),
+    perfiles: perfilesPorUsuario.get(u.idUsuario) || [],
     planes: planesPorPersona.get(idPersona) || [],
     horas: (horasPorPersona.get(idPersona) || []).sort(),
   }));
@@ -303,6 +323,7 @@ exports.getById = asyncHandler(async (req, res) => {
   const { idPersona: _idPersona, ...datosPublicos } = usuarioBase;
   const usuarioFinal = {
     ...datosPublicos,
+    perfiles: await perfilesDetalle(usuarioBase.idUsuario), // todos sus perfiles (el principal es "perfil")
     creditos: metricas.creditosCalculados,
     membresia: metricas.membresiaCalculada  
   };
@@ -314,16 +335,22 @@ exports.getById = asyncHandler(async (req, res) => {
  * Crea un nuevo usuario y automatiza la ficha de profesor si corresponde
  */
 exports.create = asyncHandler(async (req, res) => {
-  const { nombrecompleto, dni, correo, telefono, username, password, idPerfil } = req.body;
+  const { nombrecompleto, dni, correo, telefono, username, password, idPerfil, idPerfiles } = req.body;
 
   // Misma regla de contraseña que el registro y la recuperación (8+, mayúscula, minúscula y número)
   const problema = problemaContrasena(password);
   if (problema) return errorResponse(res, problema, 'WEAK_PASSWORD', 400);
 
-  // No se puede crear un usuario con un perfil que tenga más permisos que el de quien lo crea
-  if (!idPerfil || !(await puedeAsignarPerfil(req.user?.idPerfil, Number(idPerfil)))) {
+  // Un usuario puede tener varios perfiles (ej.: Alumno + Profesor). El primero es el principal.
+  const listaPerfiles = [...new Set(aLista(Array.isArray(idPerfiles) ? idPerfiles : [idPerfil]))];
+  if (listaPerfiles.length === 0) {
+    return errorResponse(res, 'Elegí al menos un perfil.', 'VALIDATION_ERROR', 400);
+  }
+  // No se puede crear un usuario con perfiles que tengan más permisos que los de quien lo crea
+  if (!(await puedeAsignarPerfil(req.user?.perfiles, listaPerfiles))) {
     return errorResponse(res, 'No podés asignar un perfil con más permisos que el tuyo.', 'FORBIDDEN', 403);
   }
+  const perfilPrincipal = listaPerfiles[0];
 
   // Usamos una transacción para garantizar consistencia total multi-tabla
   const connection = await db.getConnection();
@@ -347,7 +374,7 @@ exports.create = asyncHandler(async (req, res) => {
       personaId,
       username || correo, // si no llega un nombre de usuario, se usa el correo (como en el registro)
       hashedPassword,
-      idPerfil,
+      perfilPrincipal,
       'activo',
       null, // token de verificación: lo pide la consulta desde que el registro verifica el correo; acá no hace falta
     ]);
@@ -356,8 +383,13 @@ exports.create = asyncHandler(async (req, res) => {
     // y la contraseña es temporal: el usuario tiene que cambiarla al entrar por primera vez
     await connection.query('UPDATE usuario SET correo_verificado = 1, debe_cambiar_contrasena = 1 WHERE idUsuario = ?', [usuarioResult.insertId]);
 
+    // Todos sus perfiles (el principal ya quedó en usuario.idPerfil)
+    for (const perfil of listaPerfiles) {
+      await connection.query('INSERT INTO usuario_perfil (idUsuario, idPerfil) VALUES (?, ?)', [usuarioResult.insertId, perfil]);
+    }
+
     // 4. 🟢 AUTOMATISMO: Sincroniza la tabla profesor con la tabla intermedia perfilpermiso
-    await sincronizarFichaProfesor(connection, personaId, idPerfil);
+    await sincronizarFichaProfesor(connection, personaId, listaPerfiles);
 
     await connection.commit();
 
@@ -393,7 +425,7 @@ exports.create = asyncHandler(async (req, res) => {
  */
 exports.update = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { nombre, nombrecompleto, email, correo, dni, telefono, username, idPerfil, estado } = req.body;
+  const { nombre, nombrecompleto, email, correo, dni, telefono, username, idPerfil, idPerfiles, estado } = req.body;
 
   const connection = await db.getConnection();
   await connection.beginTransaction();
@@ -406,11 +438,12 @@ exports.update = asyncHandler(async (req, res) => {
     }
     const usuarioActual = usuarios[0];
     const esPropio = Number(id) === Number(req.user?.idUsuario);
+    const perfilesActuales = await perfilesDeUsuario(usuarioActual.idUsuario);
 
-    // A otro usuario solo lo edita quien tiene un perfil igual o más fuerte. Si no, alguien con
+    // A otro usuario solo lo edita quien tiene perfiles con igual o más poder. Si no, alguien con
     // menos poder podría cambiarle el correo a un administrador y quedarse con su cuenta
     // pidiendo "recuperar contraseña".
-    if (!esPropio && !(await puedeAsignarPerfil(req.user?.idPerfil, usuarioActual.idPerfil))) {
+    if (!esPropio && !(await puedeAsignarPerfil(req.user?.perfiles, perfilesActuales))) {
       await connection.rollback();
       return errorResponse(res, 'No podés editar a un usuario con más permisos que los tuyos.', 'FORBIDDEN', 403);
     }
@@ -431,7 +464,7 @@ exports.update = asyncHandler(async (req, res) => {
     let finalUsername = username || email || correo || usuarioActual.username;
     // Perfil y estado solo los puede cambiar quien tiene permiso de modificar usuarios. Sin esto,
     // cualquiera podía enviar su propio idPerfil y convertirse en administrador.
-    const puedeAdministrar = await tienePermiso(req.user?.idPerfil, 'usuarios', 'modificacion');
+    const puedeAdministrar = await tienePermiso(req.user?.perfiles, 'usuarios', 'modificacion');
     // Quien edita su propia cuenta sin ser administrador solo puede cambiar su nombre y su teléfono: el correo (es el usuario de
     // ingreso y recibe los avisos), el DNI y el nombre de usuario son datos de identidad que cambia el box.
     if (!puedeAdministrar) {
@@ -453,22 +486,39 @@ exports.update = asyncHandler(async (req, res) => {
       finalEstado = estado;
     }
 
-    let finalIdPerfil = usuarioActual.idPerfil;
-    const perfilPedido = idPerfil !== undefined && idPerfil !== null && idPerfil !== "" ? parseInt(idPerfil) : null;
-    if (puedeAdministrar && perfilPedido !== null && perfilPedido !== Number(usuarioActual.idPerfil)) {
-      // Nadie asigna un perfil con más poder que el suyo. Vale también para el propio: uno puede
-      // pasarse a un perfil igual o menor, nunca subirse.
-      if (!(await puedeAsignarPerfil(req.user?.idPerfil, perfilPedido))) {
+    // Perfiles: la lista pedida (idPerfiles) o un solo perfil (idPerfil, formato anterior).
+    // Un idPerfil suelto igual al principal actual no cambia nada: así una pantalla que todavía manda un solo
+    // perfil no le borra al usuario los perfiles adicionales al guardar otros datos.
+    let finalPerfiles = perfilesActuales;
+    const pedido = Array.isArray(idPerfiles)
+      ? [...new Set(aLista(idPerfiles))]
+      : idPerfil !== undefined && idPerfil !== null && idPerfil !== "" && Number(idPerfil) !== Number(usuarioActual.idPerfil)
+        ? [...new Set(aLista([parseInt(idPerfil)]))]
+        : null;
+    const cambiaPerfiles = pedido !== null && (pedido.length !== perfilesActuales.length || pedido.some((p) => !perfilesActuales.includes(p)));
+    if (puedeAdministrar && cambiaPerfiles) {
+      if (pedido.length === 0) {
+        await connection.rollback();
+        return errorResponse(res, 'Elegí al menos un perfil.', 'VALIDATION_ERROR', 400);
+      }
+      // Nadie asigna perfiles con más poder que los suyos. Vale también para el propio: uno puede
+      // pasarse a perfiles iguales o menores, nunca subirse.
+      if (!(await puedeAsignarPerfil(req.user?.perfiles, pedido))) {
         await connection.rollback();
         return errorResponse(res, 'No podés asignar un perfil con más permisos que el tuyo.', 'FORBIDDEN', 403);
       }
       // Si uno mismo se saca el permiso de administrar usuarios, tiene que quedar otra persona
       // activa que lo tenga; si no, nadie podría devolvérselo.
-      if (esPropio && !esSuperAdmin(req.user?.idPerfil) && !(await tienePermiso(perfilPedido, 'usuarios', 'modificacion'))) {
+      if (esPropio && !esSuperAdmin(req.user?.perfiles) && !(await tienePermiso(pedido, 'usuarios', 'modificacion'))) {
         const [[otros]] = await connection.query(
           `SELECT COUNT(*) AS cantidad
              FROM usuario u
-             INNER JOIN perfilpermiso pp ON pp.idPerfil = u.idPerfil
+             INNER JOIN (
+               SELECT idUsuario, idPerfil FROM usuario_perfil
+               UNION
+               SELECT idUsuario, idPerfil FROM usuario WHERE idPerfil IS NOT NULL
+             ) up ON up.idUsuario = u.idUsuario
+             INNER JOIN perfilpermiso pp ON pp.idPerfil = up.idPerfil
              INNER JOIN permiso p ON p.idPermiso = pp.idPermiso
             WHERE u.idUsuario <> ? AND u.estado = 'activo'
               AND LOWER(p.modulo) = 'usuarios' AND LOWER(p.accion) = 'modificacion'`,
@@ -479,23 +529,31 @@ exports.update = asyncHandler(async (req, res) => {
           return errorResponse(res, 'Sos la única persona que puede administrar usuarios: si te cambiás el perfil, nadie podría devolvértelo. Primero dale ese permiso a otra persona.', 'SELF_LOCKOUT', 400);
         }
       }
-      finalIdPerfil = perfilPedido;
+      finalPerfiles = pedido;
     }
+    // El principal es el primero de la lista (el que se muestra por defecto)
+    const finalIdPerfil = puedeAdministrar && cambiaPerfiles ? finalPerfiles[0] : usuarioActual.idPerfil;
 
-    // 1. Modificamos el usuario base
+    // 1. Modificamos el usuario base y su lista de perfiles
     const sqlUsuario = 'UPDATE usuario SET username = ?, idPerfil = ?, estado = ? WHERE idUsuario = ?';
     await connection.query(sqlUsuario, [finalUsername, finalIdPerfil, finalEstado, id]);
+    if (cambiaPerfiles && puedeAdministrar) {
+      await connection.query('DELETE FROM usuario_perfil WHERE idUsuario = ?', [id]);
+      for (const perfil of finalPerfiles) {
+        await connection.query('INSERT INTO usuario_perfil (idUsuario, idPerfil) VALUES (?, ?)', [id, perfil]);
+      }
+    }
 
     // 2. Modificamos la persona vinculada
     const sqlPersona = 'UPDATE persona SET nombrecompleto = ?, dni = ?, correo = ?, telefono = ? WHERE idPersona = ?';
     await connection.query(sqlPersona, [finalNombre, finalDni, finalCorreo, finalTelefono, usuarioActual.idPersona]);
 
     // 3. 🟢 AUTOMATISMO: Si se editó el perfil, recalculamos si se le activa la credencial de profesor
-    await sincronizarFichaProfesor(connection, usuarioActual.idPersona, finalIdPerfil);
+    await sincronizarFichaProfesor(connection, usuarioActual.idPersona, finalPerfiles);
 
-    // Los permisos salen del perfil que viaja en el token: si cambió el perfil o se desactivó la
-    // cuenta, se cortan las sesiones abiertas para que el cambio valga en el momento.
-    const cortarSesiones = Number(finalIdPerfil) !== Number(usuarioActual.idPerfil)
+    // Los permisos salen de los perfiles del usuario: si cambiaron o se desactivó la cuenta, se cortan
+    // las sesiones abiertas para que el cambio valga en el momento.
+    const cortarSesiones = (cambiaPerfiles && puedeAdministrar)
       || (finalEstado === 'inactivo' && usuarioActual.estado !== 'inactivo');
     if (cortarSesiones) await invalidarSesiones(id, connection);
     if (finalEstado === 'activo' && usuarioActual.estado !== 'activo') {

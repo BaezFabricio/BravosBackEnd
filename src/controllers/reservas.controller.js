@@ -10,7 +10,7 @@ const { crearNotificacion, getIdUsuarioPorReserva } = require('../functions/noti
  */
 exports.crearReserva = asyncHandler(async (req, res) => {
   const idUsuarioReal = req.user?.idUsuario;
-  const idPerfilReal = req.user?.idPerfil;
+  const perfilesReales = req.user?.perfiles || []; // todos los perfiles del usuario: vale si alguno tiene el permiso
   const { idHorario, fechaReserva } = req.body; 
 
   if (!idHorario || !fechaReserva) {
@@ -31,9 +31,11 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     SELECT COUNT(*) as puedeReservar
     FROM perfilpermiso pp
     INNER JOIN permiso p ON pp.idPermiso = p.idPermiso
-    WHERE pp.idPerfil = ? AND LOWER(p.modulo) IN ('alumno_reservas', 'reservas') AND LOWER(p.accion) = 'alta'
+    WHERE pp.idPerfil IN (?) AND LOWER(p.modulo) IN ('alumno_reservas', 'reservas') AND LOWER(p.accion) = 'alta'
   `;
-  const [permisoCheck] = await db.query(sqlValidarPermiso, [idPerfilReal]);
+  const [permisoCheck] = perfilesReales.length === 0
+    ? [[{ puedeReservar: 0 }]]
+    : await db.query(sqlValidarPermiso, [perfilesReales]);
   
   if (!permisoCheck || permisoCheck[0].puedeReservar === 0) {
     return errorResponse(res, 'No tenés permisos de alumno para realizar reservas.', 'FORBIDDEN', 403);

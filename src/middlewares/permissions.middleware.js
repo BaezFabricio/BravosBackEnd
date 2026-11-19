@@ -1,10 +1,21 @@
 const db = require('../config/db');
-const obtenerPermisoPerfilModulo = require('../data/Perfil/ObtenerPermisoPerfilModulo');
 const { errorResponse } = require('../utils/response');
+const { esSuperAdmin, aLista } = require('../functions/escalada');
+
+// Consulta: ¿alguno de estos perfiles tiene el permiso módulo:acción?
+const SQL_TIENE_PERMISO = `
+  SELECT p.idPermiso
+  FROM perfilpermiso pp
+  INNER JOIN permiso p ON pp.idPermiso = p.idPermiso
+  WHERE pp.idPerfil IN (?)
+    AND LOWER(p.modulo) = LOWER(?)
+    AND LOWER(p.accion) = LOWER(?)
+  LIMIT 1
+`;
 
 function hasBootstrapAccess(req) {
-  // El ID 1 sigue siendo el Admin General con pase libre absoluto
-  return req.user && Number(req.user.idPerfil) === 1;
+  // El perfil 1 sigue siendo el Admin General con pase libre absoluto (si lo tiene entre sus perfiles)
+  return Boolean(req.user) && esSuperAdmin(req.user.perfiles);
 }
 
 function requirePermission(moduloNombre, accion) {
@@ -18,17 +29,11 @@ function requirePermission(moduloNombre, accion) {
     }
 
     try {
-      const perfilIdActual = req.user.idPerfil;
-
-      // Ejecutamos la nueva query pasando los 3 parámetros clave
-      const [permisos] = await db.query(obtenerPermisoPerfilModulo, [perfilIdActual, moduloNombre, accion]);
-
-      // Si no se encontró ninguna fila, es porque no tiene ese permiso asignado
-      if (permisos.length === 0) {
+      // Vale si alguno de los perfiles del usuario tiene el permiso (son acumulables)
+      if (!(await tienePermiso(req.user.perfiles, moduloNombre, accion))) {
         return errorResponse(res, 'Acceso denegado por permisos insuficientes', 'FORBIDDEN', 403);
       }
 
-      // Si existe el registro, le damos luz verde
       next();
     } catch (error) {
       console.error('Error en middleware de permisos:', error);
@@ -38,11 +43,12 @@ function requirePermission(moduloNombre, accion) {
 }
 
 /**
- * ¿Este perfil tiene el permiso módulo:acción? (mismo criterio que requirePermission)
+ * ¿Alguno de estos perfiles (un número o una lista) tiene el permiso módulo:acción? (mismo criterio que requirePermission)
  */
-async function tienePermiso(idPerfil, moduloNombre, accion) {
-  if (!idPerfil) return false;
-  const [permisos] = await db.query(obtenerPermisoPerfilModulo, [idPerfil, moduloNombre, accion]);
+async function tienePermiso(perfiles, moduloNombre, accion) {
+  const ids = aLista(perfiles);
+  if (ids.length === 0) return false;
+  const [permisos] = await db.query(SQL_TIENE_PERMISO, [ids, moduloNombre, accion]);
   return permisos.length > 0;
 }
 
@@ -58,7 +64,7 @@ function requireAnyPermission(pares) {
 
     try {
       for (const [modulo, accion] of pares) {
-        if (await tienePermiso(req.user.idPerfil, modulo, accion)) return next();
+        if (await tienePermiso(req.user.perfiles, modulo, accion)) return next();
       }
       return errorResponse(res, 'Acceso denegado por permisos insuficientes', 'FORBIDDEN', 403);
     } catch (error) {

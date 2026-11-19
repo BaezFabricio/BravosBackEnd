@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { esSuperAdmin, aLista } = require('../functions/escalada');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
 const { generar, iaConfigurada } = require('../functions/bravoIA/gemini');
@@ -24,17 +25,19 @@ const contarUso = () => { contador.usadas += 1; };
 // Módulos de permiso que dan acceso a cada panel (mismo criterio que el frontend: src/lib/paneles.js)
 const MODULOS_ADMIN = ['usuarios', 'dashboard', 'perfiles', 'membresias', 'clases', 'reservas', 'creditos', 'configuracion'];
 
-async function panelesDelPerfil(idPerfil) {
-  const [filas] = await db.query(
+// Paneles a los que puede entrar el usuario: la unión de los permisos de todos sus perfiles
+async function panelesDelPerfil(perfiles) {
+  const ids = aLista(perfiles);
+  const [filas] = ids.length === 0 ? [[]] : await db.query(
     `SELECT LOWER(p.modulo) AS modulo
        FROM perfilpermiso pp INNER JOIN permiso p ON pp.idPermiso = p.idPermiso
-      WHERE pp.idPerfil = ?`,
-    [idPerfil]
+      WHERE pp.idPerfil IN (?)`,
+    [ids]
   );
   const modulos = filas.map((f) => f.modulo);
   return {
     alumno: modulos.some((m) => m.startsWith('alumno')),
-    admin: Number(idPerfil) === 1 || modulos.some((m) => MODULOS_ADMIN.includes(m)),
+    admin: esSuperAdmin(ids) || modulos.some((m) => MODULOS_ADMIN.includes(m)),
   };
 }
 
@@ -81,7 +84,7 @@ exports.preguntar = asyncHandler(async (req, res) => {
   }
 
   // El panel que pide el navegador es solo una sugerencia: se comprueba contra los permisos reales del perfil
-  const permitidos = await panelesDelPerfil(req.user.idPerfil);
+  const permitidos = await panelesDelPerfil(req.user.perfiles);
   if (!permitidos[panel]) {
     return errorResponse(res, 'Tu perfil no tiene acceso a este asistente.', 'FORBIDDEN', 403);
   }

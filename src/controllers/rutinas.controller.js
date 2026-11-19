@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { esSuperAdmin } = require('../functions/escalada');
 const obtenerAlumnosActivos = require('../data/Alumno/ObtenerAlumnosActivos');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
@@ -42,7 +43,7 @@ exports.getAlumnosDisponibles = asyncHandler(async (req, res) => {
  * Lista las rutinas del profesor autenticado (o todas, si es admin)
  */
 exports.getAll = asyncHandler(async (req, res) => {
-  const esAdmin = Number(req.user?.idPerfil) === 1;
+  const esAdmin = esSuperAdmin(req.user?.perfiles);
   const idProfesor = req.user?.idProfesor;
 
   if (!esAdmin && !idProfesor) {
@@ -91,7 +92,7 @@ exports.getAll = asyncHandler(async (req, res) => {
  */
 exports.getById = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const esAdmin = Number(req.user?.idPerfil) === 1;
+  const esAdmin = esSuperAdmin(req.user?.perfiles);
 
   const [rutinaRows] = await db.query('SELECT * FROM rutina WHERE idRutina = ?', [id]);
 
@@ -193,7 +194,7 @@ exports.insert = asyncHandler(async (req, res) => {
 exports.update = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { nombre, descripcion, nivel, duracion, categoria, alumnos, ejercicios } = req.body;
-  const esAdmin = Number(req.user?.idPerfil) === 1;
+  const esAdmin = esSuperAdmin(req.user?.perfiles);
 
   const [rutinaRows] = await db.query('SELECT * FROM rutina WHERE idRutina = ?', [id]);
 
@@ -239,7 +240,7 @@ exports.update = asyncHandler(async (req, res) => {
  */
 exports.delete = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const esAdmin = Number(req.user?.idPerfil) === 1;
+  const esAdmin = esSuperAdmin(req.user?.perfiles);
 
   const [rutinaRows] = await db.query('SELECT * FROM rutina WHERE idRutina = ?', [id]);
 

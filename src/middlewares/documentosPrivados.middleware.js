@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const { errorResponse } = require('../utils/response');
 const { tienePermiso } = require('./permissions.middleware');
+const { esSuperAdmin } = require('../functions/escalada');
 
 /**
  * Los archivos de /uploads/documentos (comprobantes, certificados médicos, declaraciones juradas)
@@ -26,7 +27,7 @@ async function soloDuenoOAdministrador(req, res, next) {
     if (rows.length === 0) return errorResponse(res, 'Archivo no encontrado', 'NOT_FOUND', 404);
 
     const esDueno = Number(rows[0].idDueno) === Number(req.user.idUsuario);
-    const esAdmin = Number(req.user.idPerfil) === 1 || (await tienePermiso(req.user.idPerfil, 'Usuarios', 'consulta'));
+    const esAdmin = esSuperAdmin(req.user.perfiles) || (await tienePermiso(req.user.perfiles, 'Usuarios', 'consulta'));
     if (!esDueno && !esAdmin) {
       return errorResponse(res, 'No tenés permiso para ver este documento', 'FORBIDDEN', 403);
     }

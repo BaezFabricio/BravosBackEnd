@@ -56,10 +56,15 @@ async function crearNotificacionAdmins(tipo, titulo, mensaje, link = null, push 
     const [admins] = await db.query(
       `SELECT DISTINCT u.idUsuario
        FROM usuario u
-       LEFT JOIN perfilpermiso pp ON pp.idPerfil = u.idPerfil
+       INNER JOIN (
+         SELECT idUsuario, idPerfil FROM usuario_perfil
+         UNION
+         SELECT idUsuario, idPerfil FROM usuario WHERE idPerfil IS NOT NULL
+       ) up ON up.idUsuario = u.idUsuario
+       LEFT JOIN perfilpermiso pp ON pp.idPerfil = up.idPerfil
        LEFT JOIN permiso p ON p.idPermiso = pp.idPermiso
        WHERE u.estado = 'activo'
-         AND (u.idPerfil = 1 OR (LOWER(p.modulo) = 'usuarios' AND LOWER(p.accion) = 'modificacion'))`
+         AND (up.idPerfil = 1 OR (LOWER(p.modulo) = 'usuarios' AND LOWER(p.accion) = 'modificacion'))`
     );
     for (const admin of admins) {
       await crearNotificacion(admin.idUsuario, tipo, titulo, mensaje, link, push);

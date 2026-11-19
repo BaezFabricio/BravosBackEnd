@@ -10,6 +10,7 @@ const { registrarConsentimiento } = require('../functions/consentimiento');
 const insertarUsuario = require('../data/Usuarios/InsertarUsuario');
 const { hashPassword, comparePassword } = require('../functions/encryption');
 const { crearNotificacion, crearNotificacionAdmins } = require('../functions/notificacion.service');
+const { perfilesDeUsuario, perfilesDetalle } = require('../functions/perfilesUsuario');
 const { generateToken } = require('../functions/jwt');
 const { guardarSesion, borrarSesion } = require('../functions/sesionCookie');
 const { asyncHandler } = require('../utils/helpers');
@@ -169,9 +170,11 @@ exports.login = asyncHandler(async (req, res) => {
     SELECT p.modulo, p.accion 
     FROM perfilpermiso pp
     INNER JOIN permiso p ON pp.idPermiso = p.idPermiso
-    WHERE pp.idPerfil = ?
+    WHERE pp.idPerfil IN (?)
   `;
-  const [misPermisos] = await db.query(sqlPermisos, [usuario.idPerfil]);
+  // Permisos de todos sus perfiles (son acumulables)
+  const perfilesLogin = await perfilesDeUsuario(usuario.idUsuario);
+  const [misPermisos] = await db.query(sqlPermisos, [perfilesLogin.length ? perfilesLogin : [0]]);
 
   // 3. 🟢 Formateamos los strings correspondientes (ej: "usuarios:alta")
   const listaPermisosFormateada = [];
@@ -229,6 +232,7 @@ exports.login = asyncHandler(async (req, res) => {
       nombrecompleto: usuario.nombrecompleto,
       correo: usuario.correo,
       perfil: usuario.nombrePerfil || 'admin 2',
+      perfiles: await perfilesDetalle(usuario.idUsuario), // todos sus perfiles (el principal es "perfil")
       estado: estadoReal, // 👈 Ahora viaja 'activo' sí o sí
       avatarUrl: usuario.avatarUrl || null,
       idProfesor, // 👈 el panel de profesor ya no cae a 1 fijo
@@ -294,9 +298,10 @@ exports.me = asyncHandler(async (req, res) => {
     SELECT p.modulo, p.accion 
     FROM perfilpermiso pp
     INNER JOIN permiso p ON pp.idPermiso = p.idPermiso
-    WHERE pp.idPerfil = ?
+    WHERE pp.idPerfil IN (?)
   `;
-  const [misPermisos] = await db.query(sqlPermisos, [idPerfilReal]);
+  // Permisos de todos sus perfiles (son acumulables)
+  const [misPermisos] = await db.query(sqlPermisos, [req.user.perfiles?.length ? req.user.perfiles : [0]]);
 
   // 2. 🟢 ARMAMOS EL ARRAY EN EL FORMATO "modulo:accion" QUE PIDEN TU LANDING Y PANELES
   const arrayPermisos = [];
@@ -324,6 +329,7 @@ exports.me = asyncHandler(async (req, res) => {
       username: usuarioReal.username,
       idPerfil: idPerfilReal,
       perfil: usuarioReal.nombrePerfil || 'Alumno',
+      perfiles: await perfilesDetalle(idUsuarioReal),
       estado: usuarioReal.estado,
       avatarUrl: usuarioReal.avatarUrl || null, // 🟢 Si está vacío en la DB manda null, evitando el aviso del string ("")
       dni: usuarioReal.dni || null,

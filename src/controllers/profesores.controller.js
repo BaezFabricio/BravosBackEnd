@@ -13,7 +13,7 @@ const obtenerClasesPorProfesor = require('../data/Profesores/ObtenerClasesPorPro
 // Solo el profesor a cargo de la clase (o quien administra perfiles) puede ver sus alumnos o marcar asistencia.
 // El permiso 'profesor' solo no alcanza: el perfil Alumno también lo tiene (FAB-71).
 async function puedeGestionarClase(req, idClase) {
-  if (await tienePermiso(req.user?.idPerfil, 'perfiles', 'modificacion')) return true;
+  if (await tienePermiso(req.user?.perfiles, 'perfiles', 'modificacion')) return true;
   const idProfesor = Number(req.user?.idProfesor);
   if (!idProfesor) return false;
   const [rows] = await db.query('SELECT idProfesor FROM diaclase WHERE idClase = ?', [idClase]);

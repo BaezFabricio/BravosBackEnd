@@ -4,6 +4,8 @@ const { NOMBRE_COOKIE, leerCookie } = require('../functions/sesionCookie');
 const { corsOptions } = require('../config/cors');
 const envConfig = require('../config/env');
 const { estadoSesion } = require('../functions/versionSesion');
+const { perfilesDeUsuario } = require('../functions/perfilesUsuario');
+const { esSuperAdmin } = require('../functions/escalada');
 
 // Lo único que puede hacer una cuenta que todavía tiene la contraseña temporal
 const PERMITIDAS_CON_CONTRASENA_TEMPORAL = ['/auth/cambiar-contrasena', '/auth/me'];
@@ -70,7 +72,13 @@ async function authenticateToken(req, res, next) {
     return errorResponse(res, 'No se pudo validar la sesión', 'INTERNAL_SERVER_ERROR', 500);
   }
 
-  req.user = decoded;
+  // Los perfiles se leen de la base en cada pedido (no del token): un cambio de perfiles aplica al instante
+  try {
+    req.user = { ...decoded, perfiles: await perfilesDeUsuario(decoded.idUsuario) };
+  } catch (error) {
+    console.error('Error al leer los perfiles:', error.message);
+    return errorResponse(res, 'No se pudo validar la sesión', 'INTERNAL_SERVER_ERROR', 500);
+  }
   next();
 }
 
@@ -82,8 +90,8 @@ function isAdmin(req, res, next) {
     return errorResponse(res, 'No autenticado', 'NOT_AUTHENTICATED', 401);
   }
 
-  // 1 = Administrador (según BD)
-  if (req.user.idPerfil !== 1) {
+  // 1 = Administrador (según BD). Cuenta si lo tiene entre sus perfiles
+  if (!esSuperAdmin(req.user.perfiles)) {
     return errorResponse(res, 'Acceso denegado. Se requieren permisos de administrador', 'FORBIDDEN', 403);
   }
 
@@ -99,7 +107,7 @@ function ownProfileOrAdmin(req, res, next) {
   }
 
   const userId = parseInt(req.params.id);
-  const isAdminUser = req.user.idPerfil === 1;
+  const isAdminUser = esSuperAdmin(req.user.perfiles);
 
   if (req.user.idUsuario !== userId && !isAdminUser) {
     return errorResponse(res, 'Acceso denegado. Solo puedes acceder a tu propio perfil', 'FORBIDDEN', 403);
