@@ -1,5 +1,5 @@
 const db = require('../config/db');
-const { obtenerReglas: leerReglas } = require('../functions/reglasBox');
+const { obtenerReglas: leerReglas, tiempoTexto } = require('../functions/reglasBox');
 const { avisarProfesorDeClase, TIPOS } = require('../functions/avisosProfesor');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
@@ -11,8 +11,8 @@ const { crearNotificacion, getIdUsuarioPorReserva } = require('../functions/noti
  */
 /** GET /reservas/reglas — las reglas vigentes (para que las pantallas del alumno muestren y usen los mismos valores que el servidor) */
 exports.obtenerReglasVigentes = asyncHandler(async (req, res) => {
-  const { horasReservar, horasCancelar, diasAdelante } = await leerReglas();
-  return successResponse(res, 'Reglas de reservas', { horasReservar, horasCancelar, diasAdelante });
+  const { minutosReservar, minutosCancelar, diasAdelante } = await leerReglas();
+  return successResponse(res, 'Reglas de reservas', { minutosReservar, minutosCancelar, diasAdelante });
 });
 
 exports.crearReserva = asyncHandler(async (req, res) => {
@@ -96,8 +96,10 @@ exports.crearReserva = asyncHandler(async (req, res) => {
         'OUT_OF_WINDOW'
       );
     }
-    if (clase.minutosParaInicio === null || clase.minutosParaInicio < reglas.horasReservar * 60) {
-      return rechazar(`Solo se puede reservar hasta ${reglas.horasReservar} ${reglas.horasReservar === 1 ? 'hora' : 'horas'} antes de que empiece la clase.`, 'TOO_LATE');
+    if (clase.minutosParaInicio === null || clase.minutosParaInicio < reglas.minutosReservar) {
+      return rechazar(reglas.minutosReservar === 0
+        ? 'Esa clase ya empezó, no se puede reservar.'
+        : `Solo se puede reservar hasta ${tiempoTexto(reglas.minutosReservar)} antes de que empiece la clase.`, 'TOO_LATE');
     }
 
     if (clase.estado !== 'Activo') {
@@ -521,8 +523,8 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
     const diferenciaHoras = (fechaClaseTarget - ahora) / (1000 * 60 * 60);
     let devuelveCredito = true;
 
-    // Horas mínimas de anticipación para recuperar el crédito: las configura el administrador (por defecto, 2)
-    if (diferenciaHoras < (await leerReglas()).horasCancelar) {
+    // Minutos mínimos de anticipación para recuperar el crédito: los configura el administrador (por defecto, 2 horas)
+    if (diferenciaHoras * 60 < (await leerReglas()).minutosCancelar) {
       devuelveCredito = false; 
     }
 
