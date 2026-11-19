@@ -54,7 +54,10 @@ async function query(sql, values = []) {
   let connection;
   try {
     connection = await getConnection();
-    const [results] = await connection.execute(sql, values);
+    // Las consultas preparadas (execute) no expanden listas: con "IN (?)" y un arreglo no devuelven nada.
+    // Si algún valor es un arreglo se usa query(), que lo expande a "IN (1, 2, 3)" (los valores se escapan igual).
+    const conLista = values.some(Array.isArray);
+    const [results] = conLista ? await connection.query(sql, values) : await connection.execute(sql, values);
     return [results];
   } catch (error) {
     console.error('Error en query:', error.message);
