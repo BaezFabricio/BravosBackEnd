@@ -9,6 +9,9 @@ const { requirePermission, requireAnyPermission } = require('../middlewares/perm
 
 router.post('/', authenticateToken, requireAnyPermission([['alumno_reservas', 'alta'], ['reservas', 'alta']]), reservasController.crearReserva);
 
+// Reglas vigentes para reservar y cancelar (horas de anticipación y días hacia adelante): las pantallas del alumno las muestran y las usan
+router.get('/reglas', authenticateToken, requireAnyPermission([['alumno_reservas', 'consulta'], ['reservas', 'consulta'], ['configuracion', 'consulta']]), reservasController.obtenerReglasVigentes);
+
 router.get('/mis-reservas', authenticateToken, requireAnyPermission([['alumno_reservas', 'consulta'], ['reservas', 'consulta']]), reservasController.obtenerMisReservas);
 
 // Rutinas de las clases que el propio alumno tiene reservadas (la identidad sale del token)

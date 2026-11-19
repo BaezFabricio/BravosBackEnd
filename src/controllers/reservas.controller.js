@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { obtenerReglas: leerReglas } = require('../functions/reglasBox');
 const { avisarProfesorDeClase, TIPOS } = require('../functions/avisosProfesor');
 const { asyncHandler } = require('../utils/helpers');
 const { successResponse, errorResponse } = require('../utils/response');
@@ -8,6 +9,12 @@ const { crearNotificacion, getIdUsuarioPorReserva } = require('../functions/noti
  * POST /api/vv1/reservas
  * Crea una reserva restando cupo, validando permisos dinámicos y descontando 1 crédito de alumno
  */
+/** GET /reservas/reglas — las reglas vigentes (para que las pantallas del alumno muestren y usen los mismos valores que el servidor) */
+exports.obtenerReglasVigentes = asyncHandler(async (req, res) => {
+  const { horasReservar, horasCancelar, diasAdelante } = await leerReglas();
+  return successResponse(res, 'Reglas de reservas', { horasReservar, horasCancelar, diasAdelante });
+});
+
 exports.crearReserva = asyncHandler(async (req, res) => {
   const idUsuarioReal = req.user?.idUsuario;
   const perfilesReales = req.user?.perfiles || []; // todos los perfiles del usuario: vale si alguno tiene el permiso
@@ -80,13 +87,17 @@ exports.crearReserva = asyncHandler(async (req, res) => {
     if (clase.fechaEspecifica ? clase.fechaEspecifica !== fechaReserva : DIAS[new Date(fechaReserva + 'T12:00:00').getDay()] !== String(clase.diaHorario).toUpperCase()) {
       return rechazar('Esa clase no se dicta en la fecha elegida.', 'DATE_MISMATCH');
     }
-    // Solo se reservan las clases del día (la regla del gimnasio): no se puede dejar reservada una clase de otro día
-    const [[{ hoy }]] = await connection.query("SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS hoy");
-    if (fechaReserva !== hoy) {
-      return rechazar('Solo se pueden reservar las clases del día.', 'SAME_DAY_ONLY');
+    // Reglas del box (las configura el administrador; por defecto, solo las clases del día y hasta 2 horas antes)
+    const reglas = await leerReglas();
+    const [[{ diasDesdeHoy }]] = await connection.query('SELECT DATEDIFF(?, CURDATE()) AS diasDesdeHoy', [fechaReserva]);
+    if (diasDesdeHoy < 0 || diasDesdeHoy > reglas.diasAdelante) {
+      return rechazar(
+        reglas.diasAdelante === 0 ? 'Solo se pueden reservar las clases del día.' : `Solo se pueden reservar clases de hoy y de los próximos ${reglas.diasAdelante} días.`,
+        'OUT_OF_WINDOW'
+      );
     }
-    if (clase.minutosParaInicio === null || clase.minutosParaInicio < 120) {
-      return rechazar('Solo se puede reservar hasta 2 horas antes de que empiece la clase.', 'TOO_LATE');
+    if (clase.minutosParaInicio === null || clase.minutosParaInicio < reglas.horasReservar * 60) {
+      return rechazar(`Solo se puede reservar hasta ${reglas.horasReservar} ${reglas.horasReservar === 1 ? 'hora' : 'horas'} antes de que empiece la clase.`, 'TOO_LATE');
     }
 
     if (clase.estado !== 'Activo') {
@@ -510,7 +521,8 @@ exports.cancelarReserva = asyncHandler(async (req, res) => {
     const diferenciaHoras = (fechaClaseTarget - ahora) / (1000 * 60 * 60);
     let devuelveCredito = true;
 
-    if (diferenciaHoras < 2) {
+    // Horas mínimas de anticipación para recuperar el crédito: las configura el administrador (por defecto, 2)
+    if (diferenciaHoras < (await leerReglas()).horasCancelar) {
       devuelveCredito = false; 
     }
 
