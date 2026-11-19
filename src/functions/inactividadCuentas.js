@@ -14,12 +14,15 @@ const CADA_MS = 24 * 60 * 60 * 1000; // una vez por día
 async function desactivarCuentasInactivas() {
   const [r] = await db.query(`
     UPDATE usuario u
-    JOIN perfil pf ON pf.idPerfil = u.idPerfil
     JOIN alumno a ON a.idPersona = u.idPersona
     JOIN persona p ON p.idPersona = u.idPersona
     SET u.estado = 'inactivo'
     WHERE u.estado = 'activo'
-      AND TRIM(pf.nombrePerfil) = 'Alumno'
+      -- Solo si tiene el perfil Alumno y ningún otro (Alumno + Profesor o Administrador no se desactiva)
+      AND EXISTS (SELECT 1 FROM usuario_perfil up JOIN perfil pf ON pf.idPerfil = up.idPerfil
+                   WHERE up.idUsuario = u.idUsuario AND TRIM(pf.nombrePerfil) = 'Alumno')
+      AND NOT EXISTS (SELECT 1 FROM usuario_perfil up JOIN perfil pf ON pf.idPerfil = up.idPerfil
+                       WHERE up.idUsuario = u.idUsuario AND TRIM(pf.nombrePerfil) <> 'Alumno')
       AND u.contrasena IS NOT NULL
       AND COALESCE(
             NULLIF(GREATEST(
