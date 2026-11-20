@@ -1139,13 +1139,19 @@ exports.cancelarAbonoUsuario = asyncHandler(async (req, res) => {
   const { idCredito } = req.params;
 
   const [creditoExistente] = await db.query(
-    `SELECT idCredito FROM credito WHERE idCredito = ?`,
+    `SELECT idCredito, estado FROM credito WHERE idCredito = ?`,
     [idCredito]
   );
 
   if (creditoExistente.length === 0) {
     return errorResponse(res, 'Abono no encontrado', 'ABONO_NOT_FOUND', 404);
   }
+  // El abono tiene que ser del usuario de la ruta (no se revoca el de otra persona cambiando el número)
+  const duenoDelAbono = await getIdUsuarioPorCredito(idCredito);
+  if (req.params.id !== undefined && Number(duenoDelAbono) !== Number(req.params.id)) {
+    return errorResponse(res, 'Abono no encontrado', 'ABONO_NOT_FOUND', 404);
+  }
+  const yaRevocado = creditoExistente[0].estado === 'CANCELADO';
 
   // 🟢 CORREGIDO: Usando 'creditosCisponibles' para evitar el error ER_BAD_FIELD_ERROR
   await db.query(
@@ -1155,8 +1161,17 @@ exports.cancelarAbonoUsuario = asyncHandler(async (req, res) => {
      WHERE idCredito = ?`,
     [idCredito]
   );
+  // El pago de ese abono deja de estar "confirmado": así no se suma en los ingresos, reportes ni estadísticas
+  // (todas cuentan solo los pagos confirmados). La fila se conserva como historial.
+  await db.query(
+    `UPDATE pago p
+       INNER JOIN credito c ON c.idPago = p.idPago
+        SET p.estadoPago = 'rechazado'
+      WHERE c.idCredito = ? AND p.estadoPago = 'confirmado'`,
+    [idCredito]
+  );
 
-  const idUsuarioAlumno = await getIdUsuarioPorCredito(idCredito);
+  const idUsuarioAlumno = yaRevocado ? null : duenoDelAbono;
   if (idUsuarioAlumno) {
     crearNotificacion(idUsuarioAlumno, 'credito',
       'Membresía cancelada',
@@ -1471,11 +1486,19 @@ exports.getPagos = asyncHandler(async (req, res) => {
     `SELECT pg.idPago, pg.importe, pg.formaPago, pg.estadoPago,
             DATE_FORMAT(pg.fechaPago, '%Y-%m-%d') AS fecha,
             DATE_FORMAT(pg.fechaVencimiento, '%Y-%m-%d') AS vencimiento,
-            pl.nombre AS plan
+            pl.nombre AS plan,
+            cr.idCredito, cr.estado AS estadoCredito,
+            DATE_FORMAT(cr.fechaInicio, '%Y-%m-%d') AS inicio,
+            cr.totalCreditos AS creditosTotales,
+            cr.creditosUtilizados AS creditosUsados,
+            pop.nombrecompleto AS operador
        FROM usuario u
        INNER JOIN alumno a ON a.idPersona = u.idPersona
        INNER JOIN pago pg ON pg.idAlumno = a.idAlumno
        LEFT JOIN plan pl ON pl.idPlan = pg.idPlan
+       LEFT JOIN credito cr ON cr.idPago = pg.idPago
+       LEFT JOIN usuario uop ON uop.idUsuario = pg.idUsuarioOperador
+       LEFT JOIN persona pop ON pop.idPersona = uop.idPersona
       WHERE u.idUsuario = ?
       ORDER BY pg.fechaPago DESC, pg.idPago DESC
       LIMIT 100`,
