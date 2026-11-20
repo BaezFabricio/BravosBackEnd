@@ -928,9 +928,12 @@ exports.createAbonoUsuario = asyncHandler(async (req, res) => {
   if (fechaVencimiento) {
     vencimientoReal = fechaVencimiento;
   } else {
-    const auxFecha = new Date(inicioReal + 'T12:00:00');
-    auxFecha.setDate(auxFecha.getDate() + 30);
-    vencimientoReal = auxFecha.toISOString().split('T')[0];
+    // Las membresías vencen siempre un día 10: el próximo 10 posterior al inicio; si quedan menos de 10 días, el del mes siguiente
+    const desde = new Date(inicioReal + 'T12:00:00');
+    const venc = new Date(desde.getFullYear(), desde.getMonth(), 10, 12);
+    if (venc <= desde) venc.setMonth(venc.getMonth() + 1);
+    if ((venc - desde) / 86400000 < 10) venc.setMonth(venc.getMonth() + 1);
+    vencimientoReal = `${venc.getFullYear()}-${String(venc.getMonth() + 1).padStart(2, '0')}-10`;
   }
 
   // 🔍 BUSQUEDA DINÁMICA DEL OPERADOR REAL:
