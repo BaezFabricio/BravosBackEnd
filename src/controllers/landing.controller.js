@@ -55,6 +55,12 @@ const obtenerConfiguracion = async (req, res) => {
   }
 };
 
+// "x,y": dos enteros de 0 a 100
+const focoValido = (texto) => {
+  const m = /^(\d{1,3}),(\d{1,3})$/.exec(texto);
+  return !!m && Number(m[1]) <= 100 && Number(m[2]) <= 100;
+};
+
 const actualizarConfiguracion = async (req, res) => {
   try {
     const ActualizarLandingTextos = require('../data/Landing/ActualizarLandingTextos.js');
@@ -66,6 +72,10 @@ const actualizarConfiguracion = async (req, res) => {
     const textos = {};
     for (const [clave, valor] of Object.entries(req.body || {})) {
       if (!CLAVES_LANDING.includes(clave)) continue;
+      // El punto de la foto es "x,y" con dos números de 0 a 100: nada más se guarda
+      if (/^heroFoco[123]$/.test(clave) && String(valor).trim() !== '' && !focoValido(String(valor).trim())) {
+        return res.status(400).json({ ok: false, mensaje: 'La posición de la foto no es válida.' });
+      }
       if (valor !== undefined && valor !== null && String(valor).trim() !== '') {
         textos[clave] = String(valor).slice(0, 5000);
       }

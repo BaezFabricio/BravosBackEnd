@@ -1,7 +1,9 @@
 const db = require('../../config/db');
 
 const SECCION_MAP = {
-  hero: ['tituloHero', 'tituloHeroSize', 'tituloHeroFont', 'tituloHeroAlign'],
+  hero: ['tituloHero', 'tituloHeroSize', 'tituloHeroFont', 'tituloHeroAlign',
+         // Punto de interés de cada foto de la portada ("x,y" en %): el celular la deja centrada ahí
+         'heroFoco1', 'heroFoco2', 'heroFoco3'],
   nosotros: ['tituloNosotros', 'subtituloNosotros', 'descripcionNosotros', 'mision'],
   clases: ['claseCard1Titulo', 'claseCard1Descripcion', 'claseCard1Icono',
            'claseCard2Titulo', 'claseCard2Descripcion', 'claseCard2Icono',

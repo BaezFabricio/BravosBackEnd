@@ -13,6 +13,9 @@ const ObtenerLandingConfig = async () => {
       tituloHeroAlign: null,
       logoUrl: '/logo-box-bravos-final.png',
       heroImages: { hero1: null, hero2: null, hero3: null },
+      heroFoco1: '',
+      heroFoco2: '',
+      heroFoco3: '',
       // Nosotros
       tituloNosotros: 'Sobre Nosotros',
       subtituloNosotros: '',
