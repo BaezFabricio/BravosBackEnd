@@ -72,6 +72,24 @@ exports.limpiarMias = asyncHandler(async (req, res) => {
   return successResponse(res, 'Bandeja de notificaciones vacía');
 });
 
+/**
+ * DELETE /notificaciones/:id
+ * Borra una notificación del usuario autenticado. El usuario sale del token y la consulta exige que sea el dueño:
+ * con el id de otra persona no se borra nada (se responde 404, igual que si no existiera).
+ */
+exports.borrarUna = asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return errorResponse(res, 'Notificación inválida', 'INVALID_ID', 400);
+
+  const [resultado] = await db.query(
+    'DELETE FROM notificacion WHERE idNotificacion = ? AND idUsuario = ?',
+    [id, req.user.idUsuario]
+  );
+  if (!resultado.affectedRows) return errorResponse(res, 'Notificación no encontrada', 'NOT_FOUND', 404);
+
+  return successResponse(res, 'Notificación borrada');
+});
+
 // Solo estos tipos pueden registrarse desde la pantalla: los del sistema (reserva, credito…) los crea únicamente el servidor
 const TIPOS_DE_ACCION = ['exito', 'error', 'advertencia', 'info'];
 

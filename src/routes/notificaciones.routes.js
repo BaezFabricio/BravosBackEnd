@@ -11,5 +11,6 @@ router.delete('/', ctrl.limpiarMias);
 router.post('/registro', ctrl.registrarAccion);
 router.patch('/leer-todas', ctrl.marcarTodasLeidas);
 router.patch('/:id/leer', ctrl.marcarLeida);
+router.delete('/:id', ctrl.borrarUna);
 
 module.exports = router;
