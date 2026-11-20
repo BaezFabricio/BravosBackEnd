@@ -26,6 +26,7 @@ exports.getMetrics = asyncHandler(async (req, res) => {
     // disponible y sin vencer, y no están dados de baja manualmente.
     const [suspendedListRows] = await db.query(`
       SELECT
+        (SELECT MIN(us.idUsuario) FROM usuario us WHERE us.idPersona = p.idpersona) AS idUsuario,
         p.dni,
         p.nombrecompleto AS name,
         p.correo AS email,
