@@ -834,6 +834,7 @@ exports.getAllAbonos = asyncHandler(async (req, res) => {
       c.estado,
       p.formaPago AS metodoPago,
       p.importe AS importe,
+      ua.url AS avatarUrl,
       pPers.nombrecompleto AS operadorReal,
       (SELECT GROUP_CONCAT(DISTINCT TIME_FORMAT(h.horaInicio, '%H:%i') ORDER BY TIME_FORMAT(h.horaInicio, '%H:%i') SEPARATOR ',')
          FROM reserva r
@@ -847,6 +848,7 @@ exports.getAllAbonos = asyncHandler(async (req, res) => {
      INNER JOIN alumno a ON c.idAlumno = a.idAlumno
      INNER JOIN persona per ON a.idPersona = per.idPersona
      INNER JOIN usuario u ON per.idPersona = u.idPersona
+     LEFT JOIN usuario_avatar ua ON ua.idUsuario = u.idUsuario
      LEFT JOIN usuario pUsu ON p.idUsuarioOperador = pUsu.idUsuario
      LEFT JOIN persona pPers ON pUsu.idPersona = pPers.idPersona
      ORDER BY c.idCredito DESC`
